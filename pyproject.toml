@@ -1,0 +1,73 @@
+[project]
+name = "harnex-api"
+version = "0.1.0"
+description = "Harnex backend — multitenant API connector and orchestration platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    "httpx>=0.27",
+    "python-jose[cryptography]>=3.3",
+    "passlib[bcrypt]>=1.7",
+    "openapi-spec-validator>=0.7",
+    "python-multipart>=0.0.20",
+    "jsonschema>=4.23",
+    "prance>=23.6.21.0",
+    "pyyaml>=6.0",
+    "azure-search-documents>=11.5.2",
+    "azure-identity>=1.19",
+    "openai>=1.54",
+    "blaxel>=0.2",
+    "tenacity>=9.0",
+    "structlog>=24.4",
+    "orjson>=3.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "anyio>=4.6",
+    "respx>=0.21",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/harnex_api"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF"]
+# B008 fires on FastAPI's `= Depends(...)` default-arg convention; that's the
+# documented usage so we ignore the rule project-wide rather than littering noqa.
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["harnex_api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
