@@ -1,0 +1,143 @@
+# Copy .env.example to .env and set secrets locally. Compose substitutes ${VAR} from .env
+# (or your shell); .env must not be committed.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-harnex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-harnex}
+    ports:
+      - "5432:5432"
+    volumes:
+      - harnex_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-harnex} -d ${POSTGRES_DB:-harnex}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+    volumes:
+      - harnex_keycloak_db:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${KEYCLOAK_DB_USER:-keycloak} -d ${KEYCLOAK_DB_NAME:-keycloak}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?set KEYCLOAK_DB_PASSWORD in .env}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set KEYCLOAK_ADMIN_PASSWORD in .env}
+      KC_HEALTH_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+
+  infisical-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${INFISICAL_POSTGRES_USER:-infisical}
+      POSTGRES_PASSWORD: ${INFISICAL_POSTGRES_PASSWORD:?set INFISICAL_POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${INFISICAL_POSTGRES_DB:-infisical}
+    volumes:
+      - harnex_infisical_db:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${INFISICAL_POSTGRES_USER:-infisical} -d ${INFISICAL_POSTGRES_DB:-infisical}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  infisical-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  infisical:
+    image: infisical/infisical:latest
+    environment:
+      ENCRYPTION_KEY: ${INFISICAL_ENCRYPTION_KEY:?set INFISICAL_ENCRYPTION_KEY in .env}
+      AUTH_SECRET: ${INFISICAL_AUTH_SECRET:?set INFISICAL_AUTH_SECRET in .env}
+      DB_CONNECTION_URI: postgres://${INFISICAL_POSTGRES_USER:-infisical}:${INFISICAL_POSTGRES_PASSWORD}@infisical-db:5432/${INFISICAL_POSTGRES_DB:-infisical}
+      REDIS_URL: redis://infisical-redis:6379
+      SITE_URL: ${INFISICAL_SITE_URL:-http://localhost:8090}
+      SMTP_HOST: ${INFISICAL_SMTP_HOST:-}
+      SMTP_USERNAME: ${INFISICAL_SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${INFISICAL_SMTP_PASSWORD:-}
+      SMTP_FROM_ADDRESS: ${INFISICAL_SMTP_FROM_ADDRESS:-noreply@localhost}
+    ports:
+      - "8090:8080"
+    depends_on:
+      infisical-db:
+        condition: service_healthy
+      infisical-redis:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      HARNEX_ENV: ${HARNEX_ENV:-dev}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL for Docker (postgres hostname) in .env}
+      KEYCLOAK_BASE_URL: ${KEYCLOAK_INTERNAL_BASE_URL:-http://keycloak:8080}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-harnex}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-harnex-api}
+      INFISICAL_BASE_URL: ${INFISICAL_INTERNAL_BASE_URL:-http://infisical:8080}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_HARNEX_API_URL: ${VITE_HARNEX_API_URL:-http://localhost:8000}
+        VITE_KEYCLOAK_AUTHORITY: ${VITE_KEYCLOAK_AUTHORITY:-http://localhost:8080/realms/harnex}
+        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-harnex-web}
+        VITE_KEYCLOAK_REDIRECT_URI: ${VITE_KEYCLOAK_REDIRECT_URI:-http://localhost:5173/}
+        VITE_KEYCLOAK_POST_LOGOUT_REDIRECT_URI: ${VITE_KEYCLOAK_POST_LOGOUT_REDIRECT_URI:-http://localhost:5173/}
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  harnex_postgres:
+  harnex_keycloak_db:
+  harnex_infisical_db:
