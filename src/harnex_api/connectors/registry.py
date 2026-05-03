@@ -43,9 +43,27 @@ registry = ConnectorRegistry()
 
 def register_builtins() -> None:
     """Import + register the built-in connectors. Idempotent."""
-    from harnex_api.connectors import generic, github, jenkins
+    from harnex_api.connectors import (
+        generic,
+        github,
+        gitlab,
+        jenkins,
+        jira,
+        kubernetes,
+        linear,
+        slack,
+    )
 
-    for cls in (generic.GenericConnector, github.GitHubConnector, jenkins.JenkinsConnector):
+    for cls in (
+        generic.GenericConnector,
+        github.GitHubConnector,
+        gitlab.GitLabConnector,
+        jenkins.JenkinsConnector,
+        jira.JiraConnector,
+        kubernetes.KubernetesConnector,
+        linear.LinearConnector,
+        slack.SlackConnector,
+    ):
         instance = cls()
         if not registry.has(instance.key):
             registry.register(instance)
