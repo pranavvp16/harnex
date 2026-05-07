@@ -160,3 +160,12 @@ Key routing rules:
 - Ship/deploy/PR → invoke /ship or /land-and-deploy
 - Save progress → invoke /context-save
 - Resume context → invoke /context-restore
+
+## Health Stack
+
+- typecheck: uv run mypy src && cd web && npx tsc --noEmit
+- lint: uv run ruff check . && cd web && npx eslint src
+- test: uv run pytest
+- deadcode: cd web && npx knip
+- shell: (shellcheck not installed — skip)
+- gbrain: (not installed — skip)
