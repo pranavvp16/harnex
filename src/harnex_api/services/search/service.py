@@ -42,12 +42,8 @@ class SearchService:
             top_k=top_k,
             connector_filter=connector_filter,
         )
-        connectors_in_top = {
-            h.connector_key for h in hits[:CLARIFICATION_TOP_N] if h.connector_key
-        }
-        clarification = (
-            connector_filter is None and len(connectors_in_top) > 1 and len(hits) > 1
-        )
+        connectors_in_top = {h.connector_key for h in hits[:CLARIFICATION_TOP_N] if h.connector_key}
+        clarification = connector_filter is None and len(connectors_in_top) > 1 and len(hits) > 1
         return SearchResponse(
             hits=hits,
             clarification_needed=clarification,

@@ -51,7 +51,9 @@ class AzureOpenAIEmbeddings:
     tests that pin to fakes don't need the network or credentials.
     """
 
-    def __init__(self, *, endpoint: str, api_key: str, api_version: str, deployment: str, dim: int) -> None:
+    def __init__(
+        self, *, endpoint: str, api_key: str, api_version: str, deployment: str, dim: int
+    ) -> None:
         self.endpoint = endpoint
         self.api_key = api_key
         self.api_version = api_version

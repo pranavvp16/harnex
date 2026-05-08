@@ -44,7 +44,7 @@ def _generate_operation_id(method: str, path: str) -> str:
 
 
 def _collect_security_schemes(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return ((spec.get("components") or {}).get("securitySchemes") or {})
+    return (spec.get("components") or {}).get("securitySchemes") or {}
 
 
 _VERB_TAGS: dict[str, list[str]] = {
@@ -106,16 +106,16 @@ def enrich_spec(spec: dict[str, Any]) -> list[Operation]:
             if not isinstance(op, dict):
                 continue
             operation_id = (
-                op.get("operationId")
-                if isinstance(op.get("operationId"), str)
-                else None
+                op.get("operationId") if isinstance(op.get("operationId"), str) else None
             ) or _generate_operation_id(method, path)
             summary = _summarize(method, path, op)
             description = op.get("description") if isinstance(op.get("description"), str) else ""
             declared_tags = [t for t in (op.get("tags") or []) if isinstance(t, str)]
             params = list(path_level_params) + list(op.get("parameters") or [])
-            security = op.get("security") if isinstance(op.get("security"), list) else (
-                spec.get("security") or []
+            security = (
+                op.get("security")
+                if isinstance(op.get("security"), list)
+                else (spec.get("security") or [])
             )
             scheme_keys: list[str] = []
             for entry in security or []:

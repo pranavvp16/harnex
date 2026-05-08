@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from harnex_api.connectors.base import BaseConnector, ConnectionConfig, LoadedSpec
+from harnex_api.connectors.base import (
+    BaseConnector,
+    ConnectionConfig,
+    ConnectorTestEndpoint,
+    LoadedSpec,
+)
 from harnex_api.db.models import AuthFlow
 
 # GitLab publishes its REST API v4 OpenAPI 3 spec in the main repo.
@@ -28,6 +33,9 @@ class GitLabConnector(BaseConnector):
         AuthFlow.api_key_header,  # PRIVATE-TOKEN header
     ]
     default_base_url: ClassVar[str | None] = "https://gitlab.com"
+    test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint(
+        method="GET", path="/api/v4/user"
+    )
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         from harnex_api.services.ingestion.fetcher import fetch_spec_from_url

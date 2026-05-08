@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from harnex_api.connectors.base import BaseConnector, ConnectionConfig, LoadedSpec
+from harnex_api.connectors.base import (
+    BaseConnector,
+    ConnectionConfig,
+    ConnectorTestEndpoint,
+    LoadedSpec,
+)
 from harnex_api.db.models import AuthFlow
 
 # Atlassian publishes the Jira Cloud REST API v3 spec here.
-JIRA_OPENAPI_URL = (
-    "https://dac-static.atlassian.com/cloud/jira/platform/swagger-v3.v3.json"
-)
+JIRA_OPENAPI_URL = "https://dac-static.atlassian.com/cloud/jira/platform/swagger-v3.v3.json"
 
 
 class JiraConnector(BaseConnector):
@@ -27,6 +30,9 @@ class JiraConnector(BaseConnector):
         AuthFlow.bearer,
     ]
     default_base_url: ClassVar[str | None] = None  # tenant-specific subdomain
+    test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint(
+        method="GET", path="/rest/api/3/myself"
+    )
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         from harnex_api.services.ingestion.fetcher import fetch_spec_from_url
