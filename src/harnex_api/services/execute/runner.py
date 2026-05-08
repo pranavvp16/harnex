@@ -1,15 +1,16 @@
-"""ExecuteService — structured-fallback execution path.
+"""ExecuteService — structured-fallback and code-mode execution paths.
 
 Looks up a connection, finds the operation, builds the request, applies the
-connector's auth context, sends via httpx, and records an Execution row.
+connector's auth context, then either sends via httpx (structured path) or
+runs a generated Node.js fetch script in the Blaxel sandbox (code-mode path).
 
-Code-mode (LLM-generated JS validation in the sandbox) is the next layer —
-this module owns the deterministic fallback that the structured path falls
-through to when no validator is configured.
+Code-mode is the layer on top — structured is the deterministic fallback when
+no sandbox is configured or when code-mode is not explicitly requested.
 """
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -35,6 +36,7 @@ from harnex_api.services.execute.operation import (
     build_request,
     find_operation,
 )
+from harnex_api.services.execute.sandbox import generate_fetch_script, get_sandbox_runner
 
 
 class ConnectionNotReadyError(RuntimeError):
@@ -57,6 +59,17 @@ class ExecuteOutcome:
     operation_id: str | None = None
     method: str | None = None
     path: str | None = None
+
+
+@dataclass
+class _PreparedExecute:
+    conn: Any
+    connector: Any
+    spec: LoadedSpec
+    base_url: str
+    op: Any
+    req: ExecuteRequest
+    auth_ctx: AuthContext
 
 
 def _merge_auth(req: ExecuteRequest, auth: AuthContext) -> ExecuteRequest:
@@ -107,13 +120,14 @@ def _record_execution(
     connection_id: UUID | None,
     request: ExecuteRequest | None,
     outcome: ExecuteOutcome,
+    mode: ExecutionMode = ExecutionMode.structured,
     api_key_id: UUID | None = None,
 ) -> Execution:
     row = Execution(
         tenant_id=tenant_id,
         connection_id=connection_id,
         api_key_id=api_key_id,
-        mode=ExecutionMode.structured,
+        mode=mode,
         status=outcome.status,
         operation_id=outcome.operation_id or (request.operation_id if request else None),
         method=outcome.method or (request.method if request else None),
@@ -136,7 +150,7 @@ def _record_execution(
     return row
 
 
-async def execute_structured(
+async def _prepare_execute(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -144,13 +158,11 @@ async def execute_structured(
     operation_id: str,
     params: ExecuteParams,
     api_key_id: UUID | None = None,
-    http_client: httpx.AsyncClient | None = None,
-) -> ExecuteOutcome:
-    """Deterministic execute path — no LLM, no sandbox.
+) -> _PreparedExecute | ExecuteOutcome:
+    """Shared prep phase for both execute modes.
 
-    The MCP `execute` tool calls this with the agent-supplied params. Code-mode
-    will branch off here once the JS validator is implemented; for now this is
-    the authoritative path.
+    Returns _PreparedExecute on success, or an ExecuteOutcome (already recorded)
+    on early-exit errors (missing connection, not-ready, op-not-found, bad-params).
     """
     conn = await get_connection(session, tenant_id=tenant_id, connection_id=connection_id)
     if conn is None:
@@ -214,6 +226,45 @@ async def execute_structured(
     req = await connector.before_execute(req)
     req = _merge_auth(req, auth_ctx)
 
+    return _PreparedExecute(
+        conn=conn,
+        connector=connector,
+        spec=spec,
+        base_url=base_url,
+        op=op,
+        req=req,
+        auth_ctx=auth_ctx,
+    )
+
+
+async def execute_structured(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    connection_id: UUID,
+    operation_id: str,
+    params: ExecuteParams,
+    api_key_id: UUID | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> ExecuteOutcome:
+    """Deterministic execute path — no LLM, no sandbox.
+
+    Builds the HTTP request from the OpenAPI spec + params, applies connector
+    auth, sends via httpx, and records an Execution row.
+    """
+    prepared = await _prepare_execute(
+        session,
+        tenant_id=tenant_id,
+        connection_id=connection_id,
+        operation_id=operation_id,
+        params=params,
+        api_key_id=api_key_id,
+    )
+    if isinstance(prepared, ExecuteOutcome):
+        return prepared
+
+    req = prepared.req
+
     started = time.perf_counter()
     timestamp = datetime.now(UTC)
     try:
@@ -222,12 +273,14 @@ async def execute_structured(
         try:
             resp = await client.request(
                 req.method,
-                f"{base_url.rstrip('/')}{req.path}",
+                f"{prepared.base_url.rstrip('/')}{req.path}",
                 params=req.query,
                 headers=req.headers,
-                json=req.body if req.body is not None and not isinstance(req.body, (str, bytes)) else None,
+                json=req.body
+                if req.body is not None and not isinstance(req.body, (str, bytes))
+                else None,
                 content=req.body if isinstance(req.body, (str, bytes)) else None,
-                auth=auth_ctx.basic_auth,
+                auth=prepared.auth_ctx.basic_auth,
             )
         finally:
             if owns_client:
@@ -306,9 +359,127 @@ async def execute_structured(
     return outcome
 
 
+async def execute_code(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    connection_id: UUID,
+    operation_id: str,
+    params: ExecuteParams,
+    api_key_id: UUID | None = None,
+    timeout_seconds: int | None = None,
+) -> ExecuteOutcome:
+    """Code-mode execute path — runs a generated Node.js fetch script in the Blaxel sandbox.
+
+    Shares the same prep phase as execute_structured (connection lookup, op resolution,
+    auth context), then diverges: instead of httpx, it emits a JS script and runs it
+    in the sandbox. The sandbox returns JSON on stdout; this function parses and
+    records the result with mode=ExecutionMode.code.
+    """
+    prepared = await _prepare_execute(
+        session,
+        tenant_id=tenant_id,
+        connection_id=connection_id,
+        operation_id=operation_id,
+        params=params,
+        api_key_id=api_key_id,
+    )
+    if isinstance(prepared, ExecuteOutcome):
+        return prepared
+
+    req = prepared.req
+    full_url = f"{prepared.base_url.rstrip('/')}{req.path}"
+    script = generate_fetch_script(
+        method=req.method,
+        url=full_url,
+        headers=req.headers,
+        query=req.query,
+        body=req.body,
+    )
+
+    started = time.perf_counter()
+    runner = get_sandbox_runner()
+    result = await runner.run_node_script(source=script, timeout_seconds=timeout_seconds)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+
+    if result.exit_code != 0:
+        outcome = ExecuteOutcome(
+            status=ExecutionStatus.error,
+            http_status=None,
+            error_kind="sandbox_error",
+            error_message=result.stderr[:2048] or "sandbox exited with non-zero code",
+            duration_ms=duration_ms,
+            operation_id=operation_id,
+            method=req.method,
+            path=req.path,
+        )
+        _record_execution(
+            session=session,
+            tenant_id=tenant_id,
+            connection_id=connection_id,
+            request=req,
+            outcome=outcome,
+            mode=ExecutionMode.code,
+            api_key_id=api_key_id,
+        )
+        return outcome
+
+    try:
+        parsed: dict[str, Any] = json.loads(result.stdout)
+        http_status: int = int(parsed["http_status"])
+        resp_headers: dict[str, str] = parsed.get("headers") or {}
+        resp_body: Any = parsed.get("body")
+    except (ValueError, KeyError, TypeError):
+        outcome = ExecuteOutcome(
+            status=ExecutionStatus.error,
+            http_status=None,
+            error_kind="sandbox_output_invalid",
+            error_message=result.stdout[:2048],
+            duration_ms=duration_ms,
+            operation_id=operation_id,
+            method=req.method,
+            path=req.path,
+        )
+        _record_execution(
+            session=session,
+            tenant_id=tenant_id,
+            connection_id=connection_id,
+            request=req,
+            outcome=outcome,
+            mode=ExecutionMode.code,
+            api_key_id=api_key_id,
+        )
+        return outcome
+
+    is_success = 200 <= http_status < 300
+    outcome = ExecuteOutcome(
+        status=ExecutionStatus.success if is_success else ExecutionStatus.error,
+        http_status=http_status,
+        response_headers=resp_headers,
+        response_body=resp_body,
+        error_kind=None if is_success else f"http_{http_status}",
+        error_message=None if is_success else f"upstream returned {http_status}",
+        duration_ms=duration_ms,
+        operation_id=operation_id,
+        method=req.method,
+        path=req.path,
+    )
+    _record_execution(
+        session=session,
+        tenant_id=tenant_id,
+        connection_id=connection_id,
+        request=req,
+        outcome=outcome,
+        mode=ExecutionMode.code,
+        api_key_id=api_key_id,
+    )
+    return outcome
+
+
 __all__ = [
     "ConnectionMissingError",
     "ConnectionNotReadyError",
     "ExecuteOutcome",
+    "execute_code",
     "execute_structured",
 ]
