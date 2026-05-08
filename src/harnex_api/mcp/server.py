@@ -33,12 +33,17 @@ from harnex_api.services.search.service import SearchService
 class _CallerContext:
     api_key_id: UUID
     tenant_id: UUID
+    scope_type: str = "all"
+    scope_connection_ids: tuple[UUID, ...] = ()
+
+    def allows_connection(self, connection_id: UUID) -> bool:
+        if self.scope_type == "all":
+            return True
+        return connection_id in self.scope_connection_ids
 
 
 # Per-call auth state. Set by the auth middleware before the tool body runs.
-_caller_context: ContextVar[_CallerContext | None] = ContextVar(
-    "harnex_mcp_caller", default=None
-)
+_caller_context: ContextVar[_CallerContext | None] = ContextVar("harnex_mcp_caller", default=None)
 
 
 def _require_caller() -> _CallerContext:
@@ -113,6 +118,20 @@ def create_mcp_app() -> FastMCP:
         duration_ms}`. Status is one of `success`, `error`, or `timeout`.
         """
         caller = _require_caller()
+        try:
+            conn_uuid = UUID(connection_id)
+        except ValueError:
+            return {
+                "status": "error",
+                "error_kind": "invalid_connection_id",
+                "error_message": connection_id,
+            }
+        if not caller.allows_connection(conn_uuid):
+            return {
+                "status": "error",
+                "error_kind": "scope_forbidden",
+                "error_message": "this api key is scoped to a subset of connections",
+            }
         params = ExecuteParams(
             path=path_params or {},
             query=query or {},
@@ -124,7 +143,7 @@ def create_mcp_app() -> FastMCP:
                 outcome = await execute_structured(
                     session,
                     tenant_id=caller.tenant_id,
-                    connection_id=UUID(connection_id),
+                    connection_id=conn_uuid,
                     operation_id=operation_id,
                     params=params,
                     api_key_id=caller.api_key_id,
@@ -199,7 +218,12 @@ def build_streamable_http_app() -> Any:
             return
 
         ctx_token = _caller_context.set(
-            _CallerContext(api_key_id=auth.api_key_id, tenant_id=auth.tenant_id)
+            _CallerContext(
+                api_key_id=auth.api_key_id,
+                tenant_id=auth.tenant_id,
+                scope_type=auth.scope_type,
+                scope_connection_ids=auth.scope_connection_ids,
+            )
         )
         try:
             await inner(scope, receive, send)

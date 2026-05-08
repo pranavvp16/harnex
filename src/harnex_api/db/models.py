@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -153,9 +154,7 @@ class Connection(Base, TimestampMixin):
     """A tenant's configured instance of a connector or generic API."""
 
     __tablename__ = "connections"
-    __table_args__ = (
-        Index("ix_connection_tenant_status", "tenant_id", "status"),
-    )
+    __table_args__ = (Index("ix_connection_tenant_status", "tenant_id", "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -189,9 +188,7 @@ class Connection(Base, TimestampMixin):
 
 class Execution(Base, TimestampMixin):
     __tablename__ = "executions"
-    __table_args__ = (
-        Index("ix_execution_tenant_created", "tenant_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_execution_tenant_created", "tenant_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -223,9 +220,7 @@ class Execution(Base, TimestampMixin):
 
 class UsageMonthly(Base, TimestampMixin):
     __tablename__ = "usage_monthly"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "year_month", name="uq_usage_tenant_month"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "year_month", name="uq_usage_tenant_month"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -238,12 +233,19 @@ class UsageMonthly(Base, TimestampMixin):
 
 
 class ApiKey(Base, TimestampMixin):
-    """Tenant-scoped M2M keys for the MCP/REST surface."""
+    """Tenant-scoped M2M keys for the MCP/REST surface.
+
+    Optional `expires_at` lets callers issue time-limited keys; expiry is
+    enforced at `authenticate_key()` time so revocation does not require
+    a separate background job.
+
+    `scope` describes which connections the key may execute against:
+        {"type": "all"}  -> all tenant connections (default).
+        {"type": "connections", "connection_ids": [uuid, ...]} -> restricted.
+    """
 
     __tablename__ = "api_keys"
-    __table_args__ = (
-        Index("ix_api_key_tenant_active", "tenant_id", "is_active"),
-    )
+    __table_args__ = (Index("ix_api_key_tenant_active", "tenant_id", "is_active"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -254,6 +256,10 @@ class ApiKey(Base, TimestampMixin):
     key_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scope: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, default=lambda: {"type": "all"}, nullable=False
+    )
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     tenant: Mapped[Tenant] = relationship(back_populates="api_keys")
