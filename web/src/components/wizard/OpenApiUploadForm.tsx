@@ -1,14 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Field } from "@/components/ui/Field";
-import { Input } from "@/components/ui/Input";
-import { AuthConfigSection, authConfigSchema } from "@/components/wizard/AuthConfigSection";
-import { buildInput } from "@/components/wizard/OpenApiUrlForm";
+import {
+  AuthConfigSection,
+  authConfigSchema,
+} from "@/components/wizard/AuthConfigSection";
+import { FormActions, FormCard, FormField } from "@/components/wizard/BuiltinConnectorForm";
+import { buildInput, useEmitGenericState } from "@/components/wizard/OpenApiUrlForm";
+import type { WizardFormState } from "@/components/wizard/types";
 import type { CreateConnectionInput } from "@/lib/api";
 
 const schema = z
@@ -20,56 +21,66 @@ const schema = z
 type Values = z.infer<typeof schema>;
 
 interface Props {
-  onSubmit: (input: CreateConnectionInput, file?: File) => void;
+  onSubmit?: (input: CreateConnectionInput, file?: File) => void;
   submitting: boolean;
+  embedded?: boolean;
+  onNameChange?: (name: string) => void;
+  onStateChange?: (state: WizardFormState | null) => void;
 }
 
-export function OpenApiUploadForm({ onSubmit, submitting }: Props) {
+export function OpenApiUploadForm({
+  onSubmit,
+  submitting,
+  embedded,
+  onNameChange,
+  onStateChange,
+}: Props) {
   const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<File | null>(null);
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", base_url: "", auth_flow: "none" },
   });
+  const nameValue = form.watch("name");
+  useEffect(() => { onNameChange?.(nameValue); }, [nameValue, onNameChange]);
+  useEmitGenericState(form, "openapi_upload", onStateChange, fileRef);
+
+  function setFileBoth(next: File | null) {
+    fileRef.current = next;
+    setFile(next);
+    // Re-emit with the new file by triggering a watch tick.
+    form.setValue("name", form.getValues("name"));
+  }
 
   function handle(values: Values) {
     const input = buildInput(
       { ...values, spec_url: "" } as Values & { spec_url: string },
       "openapi_upload",
     );
-    onSubmit(input, file ?? undefined);
+    onSubmit?.(input, file ?? undefined);
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Upload an OpenAPI spec</CardTitle>
-      </CardHeader>
-      <CardBody className="flex flex-col gap-4">
-        <Field label="Connection name" htmlFor="name" error={form.formState.errors.name?.message}>
-          <Input id="name" {...form.register("name")} />
-        </Field>
-        <Field
-          label="Spec file"
-          htmlFor="spec_file"
-          hint="JSON or YAML, OpenAPI 3.x or Swagger 2.0"
-        >
-          <Input
-            id="spec_file"
-            type="file"
-            accept=".json,.yaml,.yml,application/json,text/yaml"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-        </Field>
-        <Field label="Base URL override" htmlFor="base_url">
-          <Input id="base_url" {...form.register("base_url")} />
-        </Field>
-        <AuthConfigSection form={form} />
-        <div className="flex justify-end">
-          <Button onClick={form.handleSubmit(handle)} disabled={submitting || !file}>
-            {submitting ? "Creating…" : "Create connection"}
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
+    <FormCard title="Upload an OpenAPI spec" hint="JSON or YAML, OpenAPI 3.x or Swagger 2.0">
+      <FormField label="Connection name" htmlFor="up-name" error={form.formState.errors.name?.message}>
+        <input className="input" id="up-name" {...form.register("name")} />
+      </FormField>
+      <FormField label="Spec file" htmlFor="up-spec_file">
+        <input
+          id="up-spec_file"
+          type="file"
+          className="input"
+          accept=".json,.yaml,.yml,application/json,text/yaml"
+          onChange={(e) => setFileBoth(e.target.files?.[0] ?? null)}
+        />
+      </FormField>
+      <FormField label="Base URL override" htmlFor="up-base_url">
+        <input className="input" id="up-base_url" {...form.register("base_url")} />
+      </FormField>
+      <AuthConfigSection form={form} />
+      {!embedded && (
+        <FormActions submitting={submitting} onSubmit={form.handleSubmit(handle)} disabled={!file} />
+      )}
+    </FormCard>
   );
 }
