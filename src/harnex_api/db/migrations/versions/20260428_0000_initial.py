@@ -4,6 +4,7 @@ Revision ID: 20260428_0000
 Revises:
 Create Date: 2026-04-28
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -52,8 +53,12 @@ def upgrade() -> None:
         sa.Column("azure_blob_container", sa.String(128)),
         sa.Column("monthly_execution_quota", sa.BigInteger, nullable=False, server_default="10000"),
         sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.true()),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_index("ix_tenants_slug", "tenants", ["slug"])
 
@@ -69,12 +74,18 @@ def upgrade() -> None:
         sa.Column("keycloak_user_id", sa.String(128), nullable=False),
         sa.Column("email", sa.String(320)),
         sa.Column("role", tenant_role, nullable=False, server_default="developer"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.UniqueConstraint("tenant_id", "keycloak_user_id", name="uq_membership_tenant_user"),
     )
     op.create_index("ix_tenant_memberships_tenant_id", "tenant_memberships", ["tenant_id"])
-    op.create_index("ix_tenant_memberships_keycloak_user_id", "tenant_memberships", ["keycloak_user_id"])
+    op.create_index(
+        "ix_tenant_memberships_keycloak_user_id", "tenant_memberships", ["keycloak_user_id"]
+    )
 
     op.create_table(
         "connectors",
@@ -94,8 +105,12 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("'{}'::jsonb"),
         ),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
 
     op.create_table(
@@ -125,8 +140,12 @@ def upgrade() -> None:
         sa.Column("endpoint_count", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("last_indexed_at", sa.DateTime(timezone=True)),
         sa.Column("last_error", sa.Text()),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_index("ix_connection_tenant_status", "connections", ["tenant_id", "status"])
 
@@ -145,8 +164,12 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean, nullable=False, server_default=sa.true()),
         sa.Column("last_used_at", sa.DateTime(timezone=True)),
         sa.Column("created_by", sa.String(128)),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_index("ix_api_key_tenant_active", "api_keys", ["tenant_id", "is_active"])
     op.create_index("ix_api_keys_key_prefix", "api_keys", ["key_prefix"])
@@ -190,8 +213,12 @@ def upgrade() -> None:
         sa.Column("error_kind", sa.String(64)),
         sa.Column("error_message", sa.Text()),
         sa.Column("duration_ms", sa.BigInteger),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_index("ix_execution_tenant_created", "executions", ["tenant_id", "created_at"])
 
@@ -208,8 +235,12 @@ def upgrade() -> None:
         sa.Column("executions", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("searches", sa.BigInteger, nullable=False, server_default="0"),
         sa.Column("embedding_tokens", sa.BigInteger, nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
         sa.UniqueConstraint("tenant_id", "year_month", name="uq_usage_tenant_month"),
     )
 
@@ -238,8 +269,12 @@ def upgrade() -> None:
             server_default=sa.text("'{}'::jsonb"),
         ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+        ),
     )
     op.create_index("ix_oauth_state_state", "oauth_state", ["state"])
 
