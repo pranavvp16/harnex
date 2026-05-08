@@ -44,6 +44,19 @@ class ExecuteRequest:
     operation_id: str | None = None
 
 
+@dataclass(frozen=True)
+class ConnectorTestEndpoint:
+    """Lightweight auth probe used by ``POST /v1/connections/test``.
+
+    Each builtin connector points at an authenticated, low-cost endpoint so
+    the wizard can verify credentials before persisting the connection.
+    """
+
+    method: str = "GET"
+    path: str = "/"
+    body: Any | None = None
+
+
 @runtime_checkable
 class Connector(Protocol):
     """Contract for built-in and user-supplied connectors.
@@ -95,6 +108,7 @@ class BaseConnector:
     display_name: ClassVar[str] = ""
     supported_auth: ClassVar[list[AuthFlow]] = []
     default_base_url: ClassVar[str | None] = None
+    test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint()
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         return None
@@ -138,6 +152,7 @@ __all__ = [
     "BaseConnector",
     "ConnectionConfig",
     "Connector",
+    "ConnectorTestEndpoint",
     "ExecuteRequest",
     "LoadedSpec",
 ]

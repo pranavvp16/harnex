@@ -47,4 +47,31 @@ class ReindexResult(ApiModel):
     spec_hash: str | None
 
 
-__all__ = ["ConnectionCreate", "ConnectionOut", "ReindexResult"]
+class ConnectionTestRequest(ApiModel):
+    """Dry-run probe payload — same shape as ConnectionCreate minus name."""
+
+    mode: ConnectionMode
+    connector_key: str | None = None
+    base_url: str | None = Field(default=None, max_length=512)
+    auth_flow: AuthFlow = AuthFlow.none
+    auth_config: dict[str, Any] = Field(default_factory=dict)
+    credentials: dict[str, str] = Field(default_factory=dict)
+
+
+class ConnectionTestResponse(ApiModel):
+    ok: bool
+    http_status: int | None
+    method: str
+    url: str
+    error_kind: str | None
+    message: str
+    duration_ms: int
+
+
+__all__ = [
+    "ConnectionCreate",
+    "ConnectionOut",
+    "ConnectionTestRequest",
+    "ConnectionTestResponse",
+    "ReindexResult",
+]

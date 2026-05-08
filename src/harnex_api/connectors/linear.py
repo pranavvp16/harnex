@@ -5,6 +5,7 @@ from typing import ClassVar
 from harnex_api.connectors.base import (
     BaseConnector,
     ConnectionConfig,
+    ConnectorTestEndpoint,
     ExecuteRequest,
     LoadedSpec,
 )
@@ -30,6 +31,11 @@ class LinearConnector(BaseConnector):
         AuthFlow.oauth_authcode,
     ]
     default_base_url: ClassVar[str | None] = "https://api.linear.app"
+    test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint(
+        method="POST",
+        path="/graphql",
+        body={"query": "query { viewer { id } }"},
+    )
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         if not connection.spec_url:

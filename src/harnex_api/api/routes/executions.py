@@ -23,9 +23,7 @@ async def list_executions(
     base = select(Execution).where(Execution.tenant_id == ctx.tenant_id)
     total_row = await db.execute(select(func.count()).select_from(base.subquery()))
     total = int(total_row.scalar_one())
-    rows = await db.execute(
-        base.order_by(Execution.created_at.desc()).limit(limit).offset(offset)
-    )
+    rows = await db.execute(base.order_by(Execution.created_at.desc()).limit(limit).offset(offset))
     return Page(
         items=[ExecutionOut.model_validate(r) for r in rows.scalars().all()],
         total=total,

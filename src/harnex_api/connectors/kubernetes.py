@@ -5,6 +5,7 @@ from typing import ClassVar
 from harnex_api.connectors.base import (
     BaseConnector,
     ConnectionConfig,
+    ConnectorTestEndpoint,
     ExecuteRequest,
     LoadedSpec,
 )
@@ -33,6 +34,9 @@ class KubernetesConnector(BaseConnector):
         AuthFlow.basic,
     ]
     default_base_url: ClassVar[str | None] = None  # always cluster-specific
+    test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint(
+        method="GET", path="/api"
+    )
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         if not connection.spec_url and not connection.spec_blob_path:

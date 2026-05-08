@@ -10,9 +10,15 @@ from harnex_api.api.dependencies.db import get_db
 from harnex_api.api.schemas.connections import (
     ConnectionCreate,
     ConnectionOut,
+    ConnectionTestRequest,
+    ConnectionTestResponse,
     ReindexResult,
 )
 from harnex_api.services import connections as svc
+from harnex_api.services.connection_test import (
+    ConnectionTestInput,
+    test_connection_config,
+)
 
 router = APIRouter(prefix="/v1/connections", tags=["connections"])
 
@@ -24,6 +30,39 @@ async def list_connections(
 ) -> list[ConnectionOut]:
     rows = await svc.list_connections(db, tenant_id=ctx.tenant_id)
     return [ConnectionOut.model_validate(r) for r in rows]
+
+
+@router.post("/test", response_model=ConnectionTestResponse)
+async def test_connection(
+    payload: ConnectionTestRequest,
+    ctx: TenantContext = Depends(get_tenant_context),
+) -> ConnectionTestResponse:
+    """Dry-run auth/connectivity probe.
+
+    Builds an auth context from the supplied credentials in memory (never
+    persisted) and sends one request to the connector's known test endpoint.
+    Used by the connection wizard before the connection is created.
+    """
+    _ = ctx  # tenant scoping handled by tenant context; nothing reads it here.
+    result = await test_connection_config(
+        ConnectionTestInput(
+            mode=payload.mode,
+            connector_key=payload.connector_key,
+            base_url=payload.base_url,
+            auth_flow=payload.auth_flow,
+            auth_config=payload.auth_config,
+            credentials=payload.credentials,
+        )
+    )
+    return ConnectionTestResponse(
+        ok=result.ok,
+        http_status=result.http_status,
+        method=result.method,
+        url=result.url,
+        error_kind=result.error_kind,
+        message=result.message,
+        duration_ms=result.duration_ms,
+    )
 
 
 @router.post("", response_model=ConnectionOut, status_code=status.HTTP_201_CREATED)
@@ -81,9 +120,7 @@ async def reindex_connection(
     ctx: TenantContext = Depends(get_tenant_context),
     db: AsyncSession = Depends(get_db),
 ) -> ReindexResult:
-    result = await svc.reindex_connection(
-        db, tenant_id=ctx.tenant_id, connection_id=connection_id
-    )
+    result = await svc.reindex_connection(db, tenant_id=ctx.tenant_id, connection_id=connection_id)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
     return ReindexResult(
