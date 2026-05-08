@@ -95,16 +95,12 @@ async def get_connection(
     session: AsyncSession, *, tenant_id: UUID, connection_id: UUID
 ) -> Connection | None:
     row = await session.execute(
-        select(Connection).where(
-            Connection.id == connection_id, Connection.tenant_id == tenant_id
-        )
+        select(Connection).where(Connection.id == connection_id, Connection.tenant_id == tenant_id)
     )
     return row.scalar_one_or_none()
 
 
-async def delete_connection(
-    session: AsyncSession, *, tenant_id: UUID, connection_id: UUID
-) -> bool:
+async def delete_connection(session: AsyncSession, *, tenant_id: UUID, connection_id: UUID) -> bool:
     conn = await get_connection(session, tenant_id=tenant_id, connection_id=connection_id)
     if conn is None:
         return False

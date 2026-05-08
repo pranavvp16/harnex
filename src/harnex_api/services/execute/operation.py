@@ -71,9 +71,7 @@ def _required_names(params: list[dict[str, Any]]) -> set[str]:
     return {p.get("name") for p in params if p.get("required")} - {None}  # type: ignore[arg-type]
 
 
-def build_request(
-    op: Operation, params: ExecuteParams
-) -> ExecuteRequest:
+def build_request(op: Operation, params: ExecuteParams) -> ExecuteRequest:
     """Compose a concrete request from an operation + supplied params.
 
     Validates required params (path, query, body presence). Header/cookie params
@@ -83,9 +81,7 @@ def build_request(
 
     missing_query = _required_names(by_loc["query"]) - set(params.query.keys())
     if missing_query:
-        raise MissingRequiredParamError(
-            f"missing required query params: {sorted(missing_query)}"
-        )
+        raise MissingRequiredParamError(f"missing required query params: {sorted(missing_query)}")
 
     if op.request_body and op.request_body.get("required") and params.body is None:
         raise MissingRequiredParamError("request body required")

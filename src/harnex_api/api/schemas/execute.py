@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import Field
 
 from harnex_api.api.schemas.common import ApiModel
-from harnex_api.db.models import ExecutionStatus
+from harnex_api.db.models import ExecutionMode, ExecutionStatus
 
 
 class ExecuteRequestIn(ApiModel):
@@ -16,6 +16,7 @@ class ExecuteRequestIn(ApiModel):
     query: dict[str, Any] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
     body: Any | None = None
+    mode: ExecutionMode = ExecutionMode.structured
 
 
 class ExecuteResponse(ApiModel):

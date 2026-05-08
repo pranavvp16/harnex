@@ -96,11 +96,48 @@ class BlaxelSandboxRunner:
         import base64
 
         encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
-        cmd = (
-            "node -e "
-            f'"eval(Buffer.from(\\"{encoded}\\", \\"base64\\").toString(\\"utf-8\\"))"'
-        )
+        cmd = f'node -e "eval(Buffer.from(\\"{encoded}\\", \\"base64\\").toString(\\"utf-8\\"))"'
         return await self.run_command(command=cmd, timeout_seconds=timeout_seconds)
+
+
+def generate_fetch_script(
+    *,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    query: dict[str, str],
+    body: Any | None,
+) -> str:
+    """Build a Node.js async IIFE that makes one HTTP request and prints a JSON result.
+
+    Values are embedded via json.dumps — no shell interpolation, no injection risk.
+    Stdout format: {"http_status": int, "headers": {}, "body": any}
+    """
+    import json
+
+    body_literal = json.dumps(body) if body is not None else "null"
+    return f"""(async () => {{
+  const _url = new URL({json.dumps(url)});
+  for (const [k, v] of Object.entries({json.dumps(query)})) _url.searchParams.set(k, String(v));
+  const opts = {{ method: {json.dumps(method.upper())}, headers: {json.dumps(headers)} }};
+  const _body = {body_literal};
+  if (_body !== null) {{
+    opts.body = JSON.stringify(_body);
+    if (!opts.headers["content-type"] && !opts.headers["Content-Type"])
+      opts.headers["Content-Type"] = "application/json";
+  }}
+  const resp = await fetch(_url.toString(), opts);
+  const ct = resp.headers.get("content-type") || "";
+  let respBody;
+  try {{ respBody = ct.includes("application/json") ? await resp.json() : await resp.text(); }}
+  catch (_e) {{ respBody = await resp.text(); }}
+  const respHeaders = {{}};
+  for (const [k, v] of resp.headers.entries()) {{
+    if (k.toLowerCase() !== "set-cookie") respHeaders[k] = v;
+  }}
+  console.log(JSON.stringify({{ http_status: resp.status, headers: respHeaders, body: respBody }}));
+}})().catch(e => {{ console.error(e.message || String(e)); process.exit(1); }});
+"""
 
 
 _runner: SandboxRunner | None = None
@@ -123,6 +160,7 @@ __all__ = [
     "BlaxelSandboxRunner",
     "SandboxResult",
     "SandboxRunner",
+    "generate_fetch_script",
     "get_sandbox_runner",
     "set_sandbox_runner",
 ]

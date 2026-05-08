@@ -14,6 +14,7 @@ import os
 import sys
 from pathlib import Path
 
+
 # Bootstrap env from .env if present; CI passes vars explicitly.
 def _load_dotenv() -> None:
     env_path = Path(__file__).resolve().parents[1] / ".env"
