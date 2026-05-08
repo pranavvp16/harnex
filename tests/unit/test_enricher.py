@@ -26,9 +26,7 @@ def test_enrich_generates_operation_id_when_missing():
 
 
 def test_enrich_keeps_declared_operation_id():
-    ops = enrich_spec(
-        _spec({"/items": {"get": {"operationId": "items.list", "summary": "List"}}})
-    )
+    ops = enrich_spec(_spec({"/items": {"get": {"operationId": "items.list", "summary": "List"}}}))
     assert ops[0].operation_id == "items.list"
 
 

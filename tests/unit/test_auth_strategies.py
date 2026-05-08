@@ -33,9 +33,7 @@ def test_basic_strategy():
 
 
 def test_none_strategy():
-    ctx = get_strategy(AuthFlow.none).build(
-        {}, AuthCredentials(flow=AuthFlow.none, values={})
-    )
+    ctx = get_strategy(AuthFlow.none).build({}, AuthCredentials(flow=AuthFlow.none, values={}))
     assert ctx.headers == {}
     assert ctx.query == {}
 
