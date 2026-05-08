@@ -94,9 +94,7 @@ def test_build_request_missing_required_query_raises() -> None:
     with pytest.raises(MissingRequiredParamError):
         build_request(
             op,
-            ExecuteParams(
-                path={"owner": "x", "repo": "y"}, query={}, headers={}, body=None
-            ),
+            ExecuteParams(path={"owner": "x", "repo": "y"}, query={}, headers={}, body=None),
         )
 
 

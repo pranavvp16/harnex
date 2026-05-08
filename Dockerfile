@@ -11,12 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential libpq-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
+COPY src ./src
 RUN uv pip install --system -e .
 
-COPY src ./src
 COPY alembic.ini ./alembic.ini
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -fsS http://localhost:8000/healthz || exit 1
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["uvicorn", "harnex_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
