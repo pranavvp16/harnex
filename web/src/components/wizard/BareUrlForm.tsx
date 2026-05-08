@@ -1,13 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { Button } from "@/components/ui/Button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/Card";
-import { Field } from "@/components/ui/Field";
-import { Input } from "@/components/ui/Input";
-import { AuthConfigSection, authConfigSchema } from "@/components/wizard/AuthConfigSection";
-import { buildInput } from "@/components/wizard/OpenApiUrlForm";
+import {
+  AuthConfigSection,
+  authConfigSchema,
+} from "@/components/wizard/AuthConfigSection";
+import { FormActions, FormCard, FormField } from "@/components/wizard/BuiltinConnectorForm";
+import { buildInput, useEmitGenericState } from "@/components/wizard/OpenApiUrlForm";
+import type { WizardFormState } from "@/components/wizard/types";
 import type { CreateConnectionInput } from "@/lib/api";
 
 const schema = z
@@ -19,49 +21,44 @@ const schema = z
 type Values = z.infer<typeof schema>;
 
 interface Props {
-  onSubmit: (input: CreateConnectionInput) => void;
+  onSubmit?: (input: CreateConnectionInput) => void;
   submitting: boolean;
+  embedded?: boolean;
+  onNameChange?: (name: string) => void;
+  onStateChange?: (state: WizardFormState | null) => void;
 }
 
-export function BareUrlForm({ onSubmit, submitting }: Props) {
+export function BareUrlForm({
+  onSubmit,
+  submitting,
+  embedded,
+  onNameChange,
+  onStateChange,
+}: Props) {
   const form = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", base_url: "", auth_flow: "none" },
   });
+  const nameValue = form.watch("name");
+  useEffect(() => { onNameChange?.(nameValue); }, [nameValue, onNameChange]);
+  useEmitGenericState(form, "bare_url", onStateChange);
 
   function handle(values: Values) {
-    onSubmit(
+    onSubmit?.(
       buildInput({ ...values, spec_url: "" } as Values & { spec_url: string }, "bare_url"),
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Connect a bare API URL</CardTitle>
-      </CardHeader>
-      <CardBody className="flex flex-col gap-4">
-        <p className="text-sm text-slate-600">
-          Without a spec, agents must supply method/path/body explicitly. You can attach an
-          OpenAPI spec later to make the connection searchable.
-        </p>
-        <Field label="Connection name" htmlFor="name" error={form.formState.errors.name?.message}>
-          <Input id="name" {...form.register("name")} />
-        </Field>
-        <Field
-          label="Base URL"
-          htmlFor="base_url"
-          error={form.formState.errors.base_url?.message}
-        >
-          <Input id="base_url" placeholder="https://api.example.com" {...form.register("base_url")} />
-        </Field>
-        <AuthConfigSection form={form} />
-        <div className="flex justify-end">
-          <Button onClick={form.handleSubmit(handle)} disabled={submitting}>
-            {submitting ? "Creating…" : "Create connection"}
-          </Button>
-        </div>
-      </CardBody>
-    </Card>
+    <FormCard title="Connect a bare API URL" hint="Without a spec, agents must supply method/path/body explicitly.">
+      <FormField label="Connection name" htmlFor="br-name" error={form.formState.errors.name?.message}>
+        <input className="input" id="br-name" {...form.register("name")} />
+      </FormField>
+      <FormField label="Base URL" htmlFor="br-base_url" error={form.formState.errors.base_url?.message}>
+        <input className="input" id="br-base_url" placeholder="https://api.example.com" {...form.register("base_url")} />
+      </FormField>
+      <AuthConfigSection form={form} />
+      {!embedded && <FormActions submitting={submitting} onSubmit={form.handleSubmit(handle)} />}
+    </FormCard>
   );
 }

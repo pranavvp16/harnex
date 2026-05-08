@@ -10,13 +10,20 @@ interface FieldProps {
 
 export function Field({ label, htmlFor, hint, error, children }: FieldProps) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={htmlFor} className="text-sm font-medium text-slate-700">
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <label
+        htmlFor={htmlFor}
+        style={{ fontSize: 12.5, fontWeight: 500, color: "var(--slate)" }}
+      >
         {label}
       </label>
       {children}
-      {hint && !error && <p className="text-xs text-slate-500">{hint}</p>}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {hint && !error && (
+        <p style={{ fontSize: 11.5, color: "var(--muted)", margin: 0 }}>{hint}</p>
+      )}
+      {error && (
+        <p style={{ fontSize: 11.5, color: "var(--red)", margin: 0 }}>{error}</p>
+      )}
     </div>
   );
 }
