@@ -14,15 +14,18 @@ import { env } from "@/lib/env";
 export interface AuthState {
   status: "loading" | "anonymous" | "authenticated";
   user: User | null;
-  manager: UserManager;
+  manager: UserManager | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
+  /** Tenant id sent via X-Harnex-Dev-Tenant when running without Keycloak. */
+  devTenantId: string | null;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
-function buildUserManager(): UserManager {
+function buildUserManager(): UserManager | null {
+  if (!env.keycloak) return null;
   return new UserManager({
     authority: env.keycloak.authority,
     client_id: env.keycloak.clientId,
@@ -43,13 +46,15 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const manager = useMemo(buildUserManager, []);
   const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<AuthState["status"]>("loading");
+  const [status, setStatus] = useState<AuthState["status"]>(
+    env.devTenantId ? "authenticated" : "loading",
+  );
 
   useEffect(() => {
+    if (!manager) return;
     let cancelled = false;
     (async () => {
       try {
-        // Handle a redirect-back if the URL contains the OIDC code.
         const search = window.location.search;
         if (search.includes("code=") && search.includes("state=")) {
           const u = await manager.signinRedirectCallback();
@@ -96,16 +101,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [manager]);
 
   const signIn = useCallback(async () => {
+    if (!manager) return;
     await manager.signinRedirect({
       state: { returnTo: window.location.pathname + window.location.search },
     });
   }, [manager]);
 
   const signOut = useCallback(async () => {
+    if (!manager) return;
     await manager.signoutRedirect();
   }, [manager]);
 
   const getAccessToken = useCallback(async () => {
+    if (!manager) return null;
     const u = await manager.getUser();
     if (!u) return null;
     if (u.expired) {
@@ -120,8 +128,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [manager]);
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, manager, signIn, signOut, getAccessToken }),
-    [status, user, manager, signIn, signOut, getAccessToken],
+    () => ({
+      status,
+      user,
+      manager,
+      signIn,
+      signOut,
+      getAccessToken,
+      devTenantId: env.devTenantId,
+    }),
+    [status, user, manager, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children(value)}</AuthContext.Provider>;

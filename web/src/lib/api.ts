@@ -23,6 +23,17 @@ export type ConnectionMode = "builtin" | "openapi_url" | "openapi_upload" | "bar
 
 export type ConnectionStatus = "pending" | "indexing" | "ready" | "error" | "disabled";
 
+export type ExecutionMode = "code" | "structured";
+export type ExecutionStatus = "pending" | "success" | "error" | "timeout";
+
+export interface Connector {
+  key: string;
+  display_name: string;
+  is_builtin: boolean;
+  default_base_url: string | null;
+  supported_auth: AuthFlow[];
+}
+
 export interface Connection {
   id: string;
   tenant_id: string;
@@ -33,6 +44,7 @@ export interface Connection {
   base_url: string | null;
   spec_url: string | null;
   auth_flow: AuthFlow;
+  auth_config: Record<string, unknown>;
   endpoint_count: number;
   last_indexed_at: string | null;
   last_error: string | null;
@@ -53,6 +65,20 @@ export interface CreateConnectionInput {
   credentials?: Record<string, string>;
 }
 
+export interface ReindexResult {
+  connection_id: string;
+  operation_count: number;
+  chunk_count: number;
+  spec_hash: string | null;
+}
+
+export type ApiKeyScopeType = "all" | "connections";
+
+export interface ApiKeyScope {
+  type: ApiKeyScopeType;
+  connection_ids: string[];
+}
+
 export interface ApiKey {
   id: string;
   name: string;
@@ -60,23 +86,63 @@ export interface ApiKey {
   is_active: boolean;
   created_at: string;
   last_used_at: string | null;
+  expires_at: string | null;
+  scope: ApiKeyScope;
 }
 
 export interface IssuedApiKey extends ApiKey {
   /** Plaintext token — only returned once at creation. */
-  token: string;
+  plaintext: string;
+}
+
+export interface IssueApiKeyInput {
+  name: string;
+  scope: ApiKeyScope;
+  /** None = never expires; otherwise a positive day count. */
+  expires_in_days: number | null;
+}
+
+export interface ConnectionTestInput {
+  mode: ConnectionMode;
+  connector_key?: string | null;
+  base_url?: string | null;
+  auth_flow: AuthFlow;
+  auth_config?: Record<string, unknown>;
+  credentials?: Record<string, string>;
+}
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  http_status: number | null;
+  method: string;
+  url: string;
+  error_kind: string | null;
+  message: string;
+  duration_ms: number;
 }
 
 export interface ExecutionLogItem {
   id: string;
-  status: "pending" | "success" | "error" | "timeout";
-  mode: "code" | "structured";
+  tenant_id: string;
+  connection_id: string | null;
+  status: ExecutionStatus;
+  mode: ExecutionMode;
   operation_id: string | null;
   method: string | null;
   path: string | null;
+  request_summary: Record<string, unknown>;
+  response_summary: Record<string, unknown>;
   duration_ms: number | null;
   error_kind: string | null;
+  error_message: string | null;
   created_at: string;
+}
+
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface UsageCurrent {
@@ -87,30 +153,89 @@ export interface UsageCurrent {
   monthly_execution_quota: number;
 }
 
+export interface SearchHit {
+  operation_id: string;
+  connection_id: string;
+  connector_key: string | null;
+  method: string;
+  path: string;
+  summary: string;
+  score: number;
+}
+
+export interface SearchResponse {
+  hits: SearchHit[];
+  clarification_needed: boolean;
+  candidate_connectors: string[];
+}
+
+export interface ExecuteRequestInput {
+  connection_id: string;
+  operation_id: string;
+  path_params?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  body?: unknown;
+}
+
+export interface ExecuteResponse {
+  status: ExecutionStatus;
+  http_status: number | null;
+  body: unknown;
+  headers: Record<string, string>;
+  error_kind: string | null;
+  error_message: string | null;
+  duration_ms: number | null;
+  operation_id: string | null;
+  method: string | null;
+  path: string | null;
+}
+
 type TokenGetter = () => Promise<string | null>;
 
+export interface ClientAuth {
+  /** Returns a JWT access token for production OIDC auth. */
+  getAccessToken: TokenGetter;
+  /** Local dev: send X-Harnex-Dev-Tenant header instead of a bearer JWT. */
+  devTenantId?: string | null;
+}
+
 export interface HarnexClient {
+  listConnectors(): Promise<Connector[]>;
   listConnections(): Promise<Connection[]>;
   getConnection(id: string): Promise<Connection>;
   createConnection(input: CreateConnectionInput): Promise<Connection>;
-  reindexConnection(id: string): Promise<Connection>;
+  testConnection(input: ConnectionTestInput): Promise<ConnectionTestResult>;
+  reindexConnection(id: string): Promise<ReindexResult>;
   deleteConnection(id: string): Promise<void>;
-  uploadOpenApiSpec(id: string, file: File): Promise<Connection>;
+  uploadOpenApiSpec(id: string, file: File): Promise<ReindexResult>;
   listApiKeys(): Promise<ApiKey[]>;
-  issueApiKey(name: string): Promise<IssuedApiKey>;
+  issueApiKey(input: IssueApiKeyInput): Promise<IssuedApiKey>;
   revokeApiKey(id: string): Promise<void>;
-  listExecutions(limit?: number): Promise<ExecutionLogItem[]>;
+  listExecutions(params?: { limit?: number; offset?: number }): Promise<Page<ExecutionLogItem>>;
   getCurrentUsage(): Promise<UsageCurrent>;
+  search(input: {
+    query: string;
+    top_k?: number;
+    connector_filter?: string | null;
+  }): Promise<SearchResponse>;
+  executeOperation(input: ExecuteRequestInput): Promise<ExecuteResponse>;
 }
 
-export function buildClient(getToken: TokenGetter): HarnexClient {
+export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
+  const cfg: ClientAuth = typeof auth === "function" ? { getAccessToken: auth } : auth;
+
   async function call<T>(
     path: string,
     init: RequestInit & { json?: unknown } = {},
   ): Promise<T> {
-    const token = await getToken();
     const headers = new Headers(init.headers);
-    if (token) headers.set("Authorization", `Bearer ${token}`);
+    if (cfg.devTenantId) {
+      headers.set("X-Harnex-Dev-Tenant", cfg.devTenantId);
+    } else {
+      const token = await cfg.getAccessToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+    }
     if (init.json !== undefined) {
       headers.set("content-type", "application/json");
     }
@@ -133,22 +258,38 @@ export function buildClient(getToken: TokenGetter): HarnexClient {
   }
 
   return {
+    listConnectors: () => call<Connector[]>("/v1/connectors"),
     listConnections: () => call<Connection[]>("/v1/connections"),
     getConnection: (id) => call<Connection>(`/v1/connections/${id}`),
     createConnection: (input) =>
       call<Connection>("/v1/connections", { method: "POST", json: input }),
+    testConnection: (input) =>
+      call<ConnectionTestResult>("/v1/connections/test", { method: "POST", json: input }),
     reindexConnection: (id) =>
-      call<Connection>(`/v1/connections/${id}/reindex`, { method: "POST" }),
+      call<ReindexResult>(`/v1/connections/${id}/reindex`, { method: "POST" }),
     deleteConnection: (id) => call<void>(`/v1/connections/${id}`, { method: "DELETE" }),
     uploadOpenApiSpec: async (id, file) => {
       const fd = new FormData();
-      fd.append("spec", file);
-      return call<Connection>(`/v1/connections/${id}/spec`, { method: "POST", body: fd });
+      fd.append("file", file);
+      return call<ReindexResult>(`/v1/connections/${id}/spec`, { method: "POST", body: fd });
     },
     listApiKeys: () => call<ApiKey[]>("/v1/api-keys"),
-    issueApiKey: (name) => call<IssuedApiKey>("/v1/api-keys", { method: "POST", json: { name } }),
+    issueApiKey: (input) =>
+      call<IssuedApiKey>("/v1/api-keys", { method: "POST", json: input }),
     revokeApiKey: (id) => call<void>(`/v1/api-keys/${id}`, { method: "DELETE" }),
-    listExecutions: (limit = 50) => call<ExecutionLogItem[]>(`/v1/executions?limit=${limit}`),
+    listExecutions: ({ limit = 50, offset = 0 } = {}) =>
+      call<Page<ExecutionLogItem>>(`/v1/executions?limit=${limit}&offset=${offset}`),
     getCurrentUsage: () => call<UsageCurrent>("/v1/usage/current"),
+    search: (input) =>
+      call<SearchResponse>("/v1/search", {
+        method: "POST",
+        json: {
+          query: input.query,
+          top_k: input.top_k ?? 10,
+          connector_filter: input.connector_filter ?? null,
+        },
+      }),
+    executeOperation: (input) =>
+      call<ExecuteResponse>("/v1/execute", { method: "POST", json: input }),
   };
 }
