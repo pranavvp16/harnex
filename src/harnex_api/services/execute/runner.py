@@ -353,7 +353,7 @@ async def execute_structured(
     outcome = ExecuteOutcome(
         status=status_kind,
         http_status=resp.status_code,
-        response_headers=dict(resp.headers.items()),
+        response_headers=sanitize_headers(dict(resp.headers.items())),
         response_body=body,
         error_kind=None if resp.is_success else f"http_{resp.status_code}",
         error_message=None if resp.is_success else f"upstream returned {resp.status_code}",
@@ -443,7 +443,7 @@ async def execute_code(
     try:
         parsed: dict[str, Any] = json.loads(result.stdout)
         http_status: int = int(parsed["http_status"])
-        resp_headers: dict[str, str] = parsed.get("headers") or {}
+        resp_headers: dict[str, str] = sanitize_headers(dict(parsed.get("headers") or {}))
         resp_body: Any = parsed.get("body")
     except (ValueError, KeyError, TypeError):
         outcome = ExecuteOutcome(

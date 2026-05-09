@@ -51,6 +51,15 @@ def test_resolve_base_url_falls_back_to_connector_default() -> None:
     assert _resolve_base_url(p) == "https://api.github.com"
 
 
+def test_resolve_base_url_builtin_falls_back_when_no_default() -> None:
+    p = _input(
+        mode=ConnectionMode.builtin,
+        connector_key="jenkins",
+        base_url="https://jenkins.example/com/",
+    )
+    assert _resolve_base_url(p) == "https://jenkins.example/com"
+
+
 def test_resolve_base_url_builtin_ignores_custom_base_url() -> None:
     p = _input(
         mode=ConnectionMode.builtin,
@@ -91,15 +100,17 @@ async def test_run_blocks_ssrf_loopback() -> None:
     result = await run_test(p)
     assert result.ok is False
     assert result.error_kind == "ssrf_blocked"
+
+
 @pytest.mark.asyncio
 async def test_run_handles_network_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import httpx
 
-    async def _allow_public_url(url: str) -> tuple[bool, str]:
+    async def _allow_public_url(url: str) -> tuple[bool, str, list[str] | None]:
         del url
-        return True, ""
+        return True, "", None
 
     class _FailingClient:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -121,3 +132,32 @@ async def test_run_handles_network_failure(
     result = await run_test(p)
     assert result.ok is False
     assert result.error_kind == "network_error"
+
+
+@pytest.mark.asyncio
+async def test_run_redirect_not_followed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    async def _allow(url: str) -> tuple[bool, str, list[str] | None]:
+        del url
+        return True, "", None
+
+    class _RedirectClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            del args, kwargs
+
+        async def __aenter__(self) -> object:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def request(self, **kwargs: object) -> httpx.Response:
+            return httpx.Response(302, headers={"Location": "http://127.0.0.1/private"})
+
+    monkeypatch.setattr(ct, "_guard_public_http_url", _allow)
+    monkeypatch.setattr(ct.httpx, "AsyncClient", _RedirectClient)
+    p = _input(mode=ConnectionMode.bare_url, connector_key=None, base_url="https://example.com/")
+    result = await run_test(p)
+    assert result.ok is False
+    assert result.error_kind == "redirect_blocked"
