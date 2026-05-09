@@ -24,10 +24,25 @@ class AppSettings(BaseSettings):
 
     database_url: str = Field(..., alias="DATABASE_URL")
 
+    # Internal URL the API container uses for JWKS fetches and admin REST calls
+    # (e.g. http://keycloak:8080 inside docker).
     keycloak_base_url: str = Field("http://localhost:8080", alias="KEYCLOAK_BASE_URL")
+    # Public-facing issuer URL — what end users hit and what Keycloak embeds in
+    # the `iss` claim. In docker, the SPA reaches Keycloak via the host-published
+    # port (http://localhost:8080), so issued tokens carry `iss=http://localhost:8080/...`
+    # regardless of the internal docker hostname. Defaults to keycloak_base_url
+    # for non-docker setups where both URLs are the same.
+    keycloak_issuer_base_url: str = Field("", alias="KEYCLOAK_ISSUER_BASE_URL")
     keycloak_realm: str = Field("harnex", alias="KEYCLOAK_REALM")
     keycloak_audience: str = Field("harnex-api", alias="KEYCLOAK_AUDIENCE")
     keycloak_jwks_cache_seconds: int = Field(300, alias="KEYCLOAK_JWKS_CACHE_SECONDS")
+    keycloak_web_client_id: str = Field("harnex-web", alias="KEYCLOAK_WEB_CLIENT_ID")
+    keycloak_admin_client_id: str = Field(
+        "harnex-admin-cli", alias="KEYCLOAK_ADMIN_CLIENT_ID"
+    )
+    keycloak_admin_client_secret: SecretStr = Field(
+        SecretStr(""), alias="KEYCLOAK_ADMIN_CLIENT_SECRET"
+    )
 
     infisical_base_url: str = Field("http://localhost:8090", alias="INFISICAL_BASE_URL")
     infisical_project_id: str = Field("", alias="INFISICAL_PROJECT_ID")

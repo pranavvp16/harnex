@@ -389,12 +389,9 @@ function MarketingPage() {
               </Link>
             ) : (
               <>
-                <button className="btn btn-ghost btn-sm" onClick={() => void auth.signIn()}>
-                  Sign in
-                </button>
-                <button className="btn btn-accent btn-sm" onClick={() => void auth.signIn()}>
-                  Get started →
-                </button>
+                <Link to="/onboarding">
+                  <button className="btn btn-accent btn-sm">Get started →</button>
+                </Link>
               </>
             )}
           </div>
@@ -473,9 +470,11 @@ function MarketingPage() {
               <button className="btn btn-accent btn-lg">Open console →</button>
             </Link>
           ) : (
-            <button className="btn btn-accent btn-lg" onClick={() => void auth.signIn()}>
-              Escape the tool explosion →
-            </button>
+            <Link to="/onboarding">
+              <button className="btn btn-accent btn-lg">
+                Escape the tool explosion →
+              </button>
+            </Link>
           )}
           <a href="#the-problem" className="btn btn-ghost btn-lg" style={{ textDecoration: "none" }}>
             See why it's broken
@@ -1278,13 +1277,14 @@ function MarketingPage() {
                     </li>
                   ))}
                 </ul>
-                <button
-                  className={`btn btn-lg ${p.accent ? "btn-accent" : "btn-secondary"}`}
-                  style={{ width: "100%" }}
-                  onClick={() => void auth.signIn()}
-                >
-                  {p.cta}
-                </button>
+                <Link to="/onboarding" style={{ display: "block" }}>
+                  <button
+                    className={`btn btn-lg ${p.accent ? "btn-accent" : "btn-secondary"}`}
+                    style={{ width: "100%" }}
+                  >
+                    {p.cta}
+                  </button>
+                </Link>
               </div>
             ))}
           </div>
@@ -1347,9 +1347,11 @@ function MarketingPage() {
                 <button className="btn btn-accent btn-lg">Open console →</button>
               </Link>
             ) : (
-              <button className="btn btn-accent btn-lg" onClick={() => void auth.signIn()}>
-                Start free — escape the explosion →
-              </button>
+              <Link to="/onboarding">
+                <button className="btn btn-accent btn-lg">
+                  Start free — escape the explosion →
+                </button>
+              </Link>
             )}
             <a
               href="#the-problem"

@@ -274,11 +274,15 @@ export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
     init: RequestInit & { json?: unknown } = {},
   ): Promise<T> {
     const headers = new Headers(init.headers);
-    if (cfg.devTenantId) {
+    const token = await cfg.getAccessToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+      // Real-auth path: tell the API which workspace to scope to. Backend
+      // verifies the caller actually has membership in this tenant.
+      if (cfg.devTenantId) headers.set("X-Harnex-Tenant", cfg.devTenantId);
+    } else if (cfg.devTenantId) {
+      // Dev-mode build with no Keycloak — header-only auth for local testing.
       headers.set("X-Harnex-Dev-Tenant", cfg.devTenantId);
-    } else {
-      const token = await cfg.getAccessToken();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
     }
     if (init.json !== undefined) {
       headers.set("content-type", "application/json");

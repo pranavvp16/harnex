@@ -1,12 +1,13 @@
 import { useState } from "react";
 
-export type Provider = "google" | "github";
+export type Provider = "google" | "github" | "email";
 
 interface SignInStepProps {
   onSignIn: (provider: Provider) => void | Promise<void>;
+  onSignInExisting?: () => void;
 }
 
-export function SignInStep({ onSignIn }: SignInStepProps) {
+export function SignInStep({ onSignIn, onSignInExisting }: SignInStepProps) {
   const [loadingProvider, setLoadingProvider] = useState<Provider | null>(null);
 
   const trigger = async (provider: Provider) => {
@@ -74,7 +75,36 @@ export function SignInStep({ onSignIn }: SignInStepProps) {
           <span className="ob-provider-label">Continue with GitHub</span>
           {loadingProvider === "github" && <span className="ob-spinner" />}
         </button>
+
+        <button
+          type="button"
+          className={`ob-provider${loadingProvider === "email" ? " is-loading" : ""}`}
+          onClick={() => void trigger("email")}
+          disabled={loadingProvider !== null}
+        >
+          <span className="ob-provider-mark" style={{ color: "var(--ink)" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="m3 7 9 6 9-6" />
+            </svg>
+          </span>
+          <span className="ob-provider-label">Continue with email</span>
+          {loadingProvider === "email" && <span className="ob-spinner" />}
+        </button>
       </div>
+
+      {onSignInExisting && (
+        <p className="ob-signin-cta">
+          Already have an account?{" "}
+          <button
+            type="button"
+            className="ob-signin-link ob-signin-button"
+            onClick={onSignInExisting}
+          >
+            Sign in
+          </button>
+        </p>
+      )}
 
       <div className="ob-fineprint">
         By continuing you agree to the <a href="#">Terms</a> and <a href="#">Privacy</a> policy.

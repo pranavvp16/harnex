@@ -23,6 +23,7 @@ from harnex_api.api.routes import (
     tenants,
     usage,
 )
+from harnex_api.api.routes import auth as auth_routes
 from harnex_api.auth.vault import InfisicalVault, set_vault
 from harnex_api.config import AppSettings, get_settings
 from harnex_api.db.session import session_scope
@@ -114,9 +115,7 @@ def create_app() -> FastAPI:
         )
 
     @app.exception_handler(IntegrityError)
-    async def _integrity_error_handler(
-        request: Request, exc: IntegrityError
-    ) -> JSONResponse:
+    async def _integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
         """Convert DB constraint violations into 400s with a structured payload.
 
         Production responses redact the raw driver message to avoid leaking
@@ -158,6 +157,7 @@ def create_app() -> FastAPI:
     app.include_router(execute.router)
     app.include_router(tenants.router)
     app.include_router(me.router)
+    app.include_router(auth_routes.router)
 
     @app.api_route(
         "/mcp",
