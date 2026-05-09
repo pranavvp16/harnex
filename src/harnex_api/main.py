@@ -5,8 +5,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 from harnex_api import __version__
 from harnex_api.api.routes import (
@@ -15,12 +17,22 @@ from harnex_api.api.routes import (
     connectors,
     execute,
     executions,
+    me,
     search,
+    tenants,
     usage,
 )
 from harnex_api.config import AppSettings, get_settings
+from harnex_api.db.session import session_scope
 from harnex_api.logging import configure_logging, get_logger
 from harnex_api.mcp.server import build_streamable_http_app
+from harnex_api.services.tenant.seed import DEV_TENANT_ID, ensure_dev_tenant
+
+
+async def _seed_dev_tenant() -> None:
+    """Idempotent dev-tenant seed for local/dev startup."""
+    async with session_scope() as session:
+        await ensure_dev_tenant(session)
 
 
 async def _provision_sandbox(settings: AppSettings) -> None:
@@ -44,6 +56,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
     log = get_logger("harnex_api")
     log.info("startup", env=settings.env, version=__version__)
+    if settings.env in ("local", "dev"):
+        try:
+            await _seed_dev_tenant()
+            log.info("dev_tenant_seeded", tenant_id=str(DEV_TENANT_ID))
+        except Exception as exc:
+            # Non-fatal — DB may be unreachable at boot in some local setups.
+            log.warning("dev_tenant_seed_failed", error=str(exc))
     if settings.blaxel_api_key.get_secret_value():
         try:
             await _provision_sandbox(settings)
@@ -74,6 +93,38 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
+    @app.exception_handler(IntegrityError)
+    async def _integrity_error_handler(
+        request: Request, exc: IntegrityError
+    ) -> JSONResponse:
+        """Convert DB constraint violations into 400s with a structured payload.
+
+        Production responses redact the raw driver message to avoid leaking
+        schema details (table/column names). Local/dev keeps the full text so
+        developers can self-diagnose.
+        """
+        # SQLAlchemy/asyncpg surfaces the constraint name on `orig.constraint_name`.
+        constraint = getattr(getattr(exc, "orig", None), "constraint_name", None)
+        leaky = settings.env in ("local", "dev")
+        detail: dict[str, Any] = {
+            "error": "constraint_violation",
+            "message": (
+                "Request violates a database constraint."
+                if not leaky
+                else f"Request violates a database constraint: {exc.orig}"
+            ),
+        }
+        if constraint:
+            detail["constraint"] = constraint
+        get_logger("harnex_api").warning(
+            "integrity_error",
+            path=request.url.path,
+            method=request.method,
+            constraint=constraint,
+            error=str(exc.orig) if exc.orig else str(exc),
+        )
+        return JSONResponse(status_code=400, content=detail)
+
     @app.get("/healthz", tags=["meta"])
     async def healthz() -> dict[str, str]:
         return {"status": "ok", "env": settings.env, "version": __version__}
@@ -85,6 +136,8 @@ def create_app() -> FastAPI:
     app.include_router(usage.router)
     app.include_router(search.router)
     app.include_router(execute.router)
+    app.include_router(tenants.router)
+    app.include_router(me.router)
 
     # MCP shipped surface — exactly two tools (search, execute), bearer auth via tenant API keys.
     app.mount("/mcp", build_streamable_http_app())

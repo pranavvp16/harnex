@@ -11,6 +11,17 @@ import {
 
 import { env } from "@/lib/env";
 
+const ACTIVE_TENANT_STORAGE_KEY = "harnex.activeTenantId";
+
+function readStoredTenantId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export interface AuthState {
   status: "loading" | "anonymous" | "authenticated";
   user: User | null;
@@ -18,8 +29,11 @@ export interface AuthState {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
-  /** Tenant id sent via X-Harnex-Dev-Tenant when running without Keycloak. */
+  /** Tenant id sent via X-Harnex-Dev-Tenant when running without Keycloak.
+   *  Prefers a runtime-set tenant (post-onboarding) over the build-time env var. */
   devTenantId: string | null;
+  /** Persist the active tenant id (used after onboarding creates a workspace). */
+  setActiveTenantId: (id: string | null) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -46,9 +60,23 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const manager = useMemo(buildUserManager, []);
   const [user, setUser] = useState<User | null>(null);
-  const [status, setStatus] = useState<AuthState["status"]>(
-    env.devTenantId ? "authenticated" : "loading",
+  const [activeTenantId, setActiveTenantIdState] = useState<string | null>(
+    () => env.devTenantId ?? readStoredTenantId(),
   );
+  const [status, setStatus] = useState<AuthState["status"]>(
+    activeTenantId ? "authenticated" : "loading",
+  );
+
+  const setActiveTenantId = useCallback((id: string | null) => {
+    setActiveTenantIdState(id);
+    if (typeof window === "undefined") return;
+    try {
+      if (id) window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, id);
+      else window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
+    } catch {
+      // localStorage can fail in private mode — non-fatal, in-memory state still works.
+    }
+  }, []);
 
   useEffect(() => {
     if (!manager) return;
@@ -135,9 +163,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       signIn,
       signOut,
       getAccessToken,
-      devTenantId: env.devTenantId,
+      devTenantId: activeTenantId,
+      setActiveTenantId,
     }),
-    [status, user, manager, signIn, signOut],
+    [status, user, manager, signIn, signOut, getAccessToken, activeTenantId, setActiveTenantId],
   );
 
   return <AuthContext.Provider value={value}>{children(value)}</AuthContext.Provider>;

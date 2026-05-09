@@ -9,6 +9,7 @@ REST routes (under /v1/...) are internal/admin only and are not exposed via MCP.
 
 from __future__ import annotations
 
+import json
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -16,7 +17,7 @@ from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from harnex_api.db.session import session_scope
 from harnex_api.services.api_key_auth import ApiKeyAuthError, authenticate_key
@@ -186,6 +187,52 @@ def _extract_bearer(request: Request) -> str | None:
     return token.strip()
 
 
+_AUTH_HINT = (
+    "Authentication required. Create an API key at http://localhost:5173/api-keys "
+    "and pass Authorization: Bearer hnx..."
+)
+# JSON-RPC application error code reserved for auth failures on this surface.
+_JSONRPC_AUTH_ERROR_CODE = -32001
+
+
+async def _drain_body(receive: Any) -> bytes:
+    """Read the full ASGI request body. Caller must not need to replay it."""
+    chunks: list[bytes] = []
+    while True:
+        message = await receive()
+        if message["type"] == "http.request":
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                break
+        else:
+            break
+    return b"".join(chunks)
+
+
+def _extract_jsonrpc_id(body: bytes) -> Any:
+    if not body:
+        return None
+    try:
+        payload = json.loads(body)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(payload, dict):
+        return payload.get("id")
+    return None
+
+
+def _jsonrpc_auth_error(request_id: Any, message: str) -> Response:
+    return JSONResponse(
+        {
+            "jsonrpc": "2.0",
+            "error": {"code": _JSONRPC_AUTH_ERROR_CODE, "message": message},
+            "id": request_id,
+        },
+        status_code=401,
+        headers={"WWW-Authenticate": 'Bearer realm="harnex-mcp"'},
+    )
+
+
 def build_streamable_http_app() -> Any:
     """Return an ASGI app that serves the MCP streamable-HTTP transport.
 
@@ -193,6 +240,9 @@ def build_streamable_http_app() -> Any:
       - extracts the Bearer token
       - looks up the api key in the DB
       - sets the per-call caller context
+
+    On auth failure returns a JSON-RPC 2.0 error envelope (status 401) so MCP
+    clients see a structured, self-documenting error instead of an empty body.
 
     Mounted under `/mcp` by `harnex_api.main`.
     """
@@ -206,15 +256,19 @@ def build_streamable_http_app() -> Any:
         request = Request(scope, receive=receive)
         token = _extract_bearer(request)
         if not token:
-            await JSONResponse(
-                {"error": "missing or invalid Authorization header"}, status_code=401
-            )(scope, receive, send)
+            body = await _drain_body(receive)
+            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _AUTH_HINT)(
+                scope, receive, send
+            )
             return
         try:
             async with session_scope() as session:
                 auth = await authenticate_key(session, token)
         except ApiKeyAuthError as exc:
-            await JSONResponse({"error": str(exc)}, status_code=401)(scope, receive, send)
+            body = await _drain_body(receive)
+            await _jsonrpc_auth_error(
+                _extract_jsonrpc_id(body), f"{exc}. {_AUTH_HINT}"
+            )(scope, receive, send)
             return
 
         ctx_token = _caller_context.set(
