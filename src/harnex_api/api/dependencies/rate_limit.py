@@ -50,6 +50,18 @@ def _prune(now: float, host: str) -> deque[float]:
     return q
 
 
+def _enforce_in_memory(host: str) -> None:
+    """Sliding-window limit using local deque (single-process)."""
+    now = time.monotonic()
+    q = _prune(now, host)
+    if len(q) >= _MAX_POST_TENANTS_PER_WINDOW:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="too many tenant signups — try again in a minute",
+        )
+    q.append(now)
+
+
 async def _redis_backend() -> Any | None:
     global _redis_client
     url = (get_settings().redis_url or "").strip()
@@ -68,14 +80,7 @@ async def enforce_tenant_create_budget(request: Request) -> None:
     host = request.client.host if request.client else "unknown"
     redis_client = await _redis_backend()
     if redis_client is None:
-        now = time.monotonic()
-        q = _prune(now, host)
-        if len(q) >= _MAX_POST_TENANTS_PER_WINDOW:
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="too many tenant signups — try again in a minute",
-            )
-        q.append(now)
+        _enforce_in_memory(host)
         _LOG.debug(
             "tenant_create_rate_limit_memory",
             extra={"host": host, "note": "set HARNEX_REDIS_URL for Redis-backed limiting"},
@@ -85,16 +90,33 @@ async def enforce_tenant_create_budget(request: Request) -> None:
     key = f"harnex:rl:tenant_create:{host}"
     now_ts = time.time()
     member = secrets.token_hex(16)
-    allowed_raw = await redis_client.eval(
-        _RLUA,
-        1,
-        key,
-        str(now_ts),
-        str(now_ts - _WINDOW_SECONDS),
-        member,
-        str(_MAX_POST_TENANTS_PER_WINDOW),
-        str(int(_WINDOW_SECONDS) + 5),
-    )
+    try:
+        allowed_raw = await redis_client.eval(
+            _RLUA,
+            1,
+            key,
+            str(now_ts),
+            str(now_ts - _WINDOW_SECONDS),
+            member,
+            str(_MAX_POST_TENANTS_PER_WINDOW),
+            str(int(_WINDOW_SECONDS) + 5),
+        )
+    except Exception as exc:
+        import redis.exceptions as redis_exceptions
+
+        if not isinstance(exc, redis_exceptions.RedisError):
+            raise
+        # Transient Redis outage must not 500 anonymous onboarding — drop cached client
+        # so the next request can reconnect, and enforce with per-process deque.
+        _LOG.warning(
+            "tenant_create_rate_limit_redis_error",
+            extra={"host": host, "error": str(exc)},
+            exc_info=True,
+        )
+        reset_redis_client()
+        _enforce_in_memory(host)
+        return
+
     allowed = int(allowed_raw) if allowed_raw is not None else 0
     if allowed != 1:
         raise HTTPException(
