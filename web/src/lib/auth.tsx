@@ -29,8 +29,7 @@ export interface AuthState {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
-  /** Tenant id sent via X-Harnex-Dev-Tenant when running without Keycloak.
-   *  Prefers a runtime-set tenant (post-onboarding) over the build-time env var. */
+  /** Active tenant id for dev-header mode (VITE_HARNEX_DEV_TENANT build). Ignored for API auth when Keycloak is enabled. */
   devTenantId: string | null;
   /** Persist the active tenant id (used after onboarding creates a workspace). */
   setActiveTenantId: (id: string | null) => void;

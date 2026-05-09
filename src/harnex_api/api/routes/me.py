@@ -13,6 +13,7 @@ from harnex_api.api.schemas.tenants import (
     TenantOut,
     UserOut,
 )
+from harnex_api.config import get_settings
 from harnex_api.db.models import Tenant, TenantMembership, TenantRole
 
 router = APIRouter(prefix="/v1/me", tags=["me"])
@@ -26,21 +27,22 @@ async def get_me(
     """Return the caller's identity + workspaces.
 
     Console uses this to (a) decide whether to send the user to onboarding
-    and (b) populate the org switcher. In dev mode the "user" is the
-    X-Harnex-Dev-Tenant header value; in prod it'll be JWT-derived.
+    and (b) populate the org switcher across every workspace the caller
+    belongs to. Results are keyed by authenticated subject (JWT sub or dev
+    subject), never by arbitrary tenant roster.
     """
     rows = await db.execute(
         select(TenantMembership)
-        .where(TenantMembership.tenant_id == ctx.tenant_id)
+        .where(TenantMembership.keycloak_user_id == ctx.subject)
         .options(selectinload(TenantMembership.tenant))
     )
     memberships = list(rows.scalars().all())
 
     if memberships:
         membership_dtos = [MembershipOut.model_validate(m) for m in memberships]
-    else:
-        # Dev path: tenant exists (e.g. seeded dev tenant) but no membership row.
-        # Synthesize one so the console can still render the workspace.
+    elif get_settings().env in ("local", "dev") and ctx.subject == "dev":
+        # Dev-only: seeded tenant sometimes has no membership row while the UI
+        # still pins `X-Harnex-Dev-Tenant` — synthesize membership for parity.
         tenant_row = await db.execute(select(Tenant).where(Tenant.id == ctx.tenant_id))
         tenant = tenant_row.scalar_one_or_none()
         membership_dtos = (
@@ -56,6 +58,8 @@ async def get_me(
             if tenant is not None
             else []
         )
+    else:
+        membership_dtos = []
 
     return MeOut(
         user=UserOut(id=ctx.subject, email=None, full_name=None),
