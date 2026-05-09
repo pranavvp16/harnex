@@ -53,7 +53,7 @@ function Dashboard() {
       )}
 
       {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         <KpiCard
           label="Connections"
           value={connections.isLoading ? "—" : total}
@@ -62,28 +62,16 @@ function Dashboard() {
               ? `${counts.ready} ready · ${counts.indexing + counts.pending} indexing · ${counts.error} error`
               : "none yet"
           }
-          trend="+2 this week"
         />
         <KpiCard
           label="Executions"
           value={u ? u.executions.toLocaleString() : "—"}
           sub="this month"
-          trend={u ? "+18% vs last" : undefined}
-          trendUp
         />
         <KpiCard
           label="Searches"
           value={u ? u.searches.toLocaleString() : "—"}
           sub="this month"
-          trend={u ? "+22% vs last" : undefined}
-          trendUp
-        />
-        <KpiCard
-          label="P95 latency"
-          value="221ms"
-          sub="last 24h"
-          trend="−12ms vs last week"
-          trendUp
         />
       </div>
 
@@ -101,9 +89,6 @@ function Dashboard() {
             }}
           >
             <h3 style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>Recent executions</h3>
-            <span className="badge badge-slate" style={{ height: 18, fontSize: 10 }}>
-              last 1h
-            </span>
             <Link to="/executions" style={{ marginLeft: "auto" }}>
               <button className="btn btn-ghost btn-sm">
                 View all {Ic.arrow}
@@ -203,17 +188,21 @@ function Dashboard() {
 
           <div className="card" style={{ padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>Usage quota</h3>
+              <h3 style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>Usage this month</h3>
               <span
                 style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--muted)" }}
                 className="mono"
               >
-                team plan · resets May 1
+                {u?.year_month ?? "—"}
               </span>
             </div>
-            <QuotaRow label="Executions" used={u?.executions ?? 0} cap={u?.monthly_execution_quota ?? 250000} />
-            <QuotaRow label="Searches" used={u?.searches ?? 0} cap={50000} />
-            <QuotaRow label="Embedding tokens" used={u?.embedding_tokens ?? 0} cap={5000000} unit="tok" />
+            <QuotaRow
+              label="Executions"
+              used={u?.executions ?? 0}
+              cap={u?.monthly_execution_quota ?? 0}
+            />
+            <UsageRow label="Searches" value={u?.searches ?? 0} />
+            <UsageRow label="Embedding tokens" value={u?.embedding_tokens ?? 0} />
           </div>
         </div>
       </div>
@@ -246,7 +235,8 @@ function HealthBox({ label, count, color }: { label: string; count: number; colo
 }
 
 function QuotaRow({ label, used, cap, unit }: { label: string; used: number; cap: number; unit?: string }) {
-  const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : 0;
+  const hasCap = cap > 0;
+  const pct = hasCap ? Math.min(100, (used / cap) * 100) : 0;
   const color = pct > 80 ? "var(--accent)" : pct > 60 ? "var(--amber)" : "var(--ink)";
   return (
     <div style={{ marginBottom: 10 }}>
@@ -254,13 +244,27 @@ function QuotaRow({ label, used, cap, unit }: { label: string; used: number; cap
         <span style={{ fontSize: 12 }}>{label}</span>
         <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>
           {used.toLocaleString()}
-          {unit ?? ""} / {cap.toLocaleString()}
           {unit ?? ""}
+          {hasCap ? ` / ${cap.toLocaleString()}${unit ?? ""}` : ""}
         </span>
       </div>
-      <div style={{ height: 5, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: color }} />
-      </div>
+      {hasCap && (
+        <div style={{ height: 5, background: "var(--border)", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ width: `${pct}%`, height: "100%", background: color }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsageRow({ label, value, unit }: { label: string; value: number; unit?: string }) {
+  return (
+    <div style={{ marginBottom: 10, display: "flex", alignItems: "center" }}>
+      <span style={{ fontSize: 12 }}>{label}</span>
+      <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: "var(--muted)" }}>
+        {value.toLocaleString()}
+        {unit ?? ""}
+      </span>
     </div>
   );
 }

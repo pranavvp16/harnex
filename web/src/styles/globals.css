@@ -2,6 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+.skip-to-content {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform 0.15s ease;
+}
+
+.skip-to-content:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ─── Design Tokens ─── */
 @layer base {
   :root {
@@ -25,6 +48,9 @@
     --accent-soft: #FFF1E6;
     --accent-border: #FED7AA;
     --accent-ink: #9A3412;
+    --logo-ink: #0A0A0A;
+    --logo-ink-on-dark: #FAF7F0;
+    --logo-accent: #F97316;
 
     --green: #16A34A;
     --green-soft: #DCFCE7;
@@ -89,6 +115,9 @@
     --accent-soft: rgba(251, 146, 60, 0.12);
     --accent-border: rgba(251, 146, 60, 0.30);
     --accent-ink: #FFD4B0;
+    --logo-ink: #FAF7F0;
+    --logo-ink-on-dark: #FAF7F0;
+    --logo-accent: #FB923C;
 
     --green: #4ADE80;
     --green-soft: rgba(74, 222, 128, 0.12);

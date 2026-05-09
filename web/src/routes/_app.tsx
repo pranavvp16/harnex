@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Key,
   LayoutDashboard,
+  LogOut,
   Menu,
   Moon,
   Plug,
@@ -36,6 +37,12 @@ export const Route = createFileRoute("/_app")({
         to: "/login",
         search: { returnTo: location.pathname },
       });
+    }
+    // Authenticated but no tenant yet — finish onboarding before showing
+    // the workspace shell. Skips the redirect when /onboarding itself bounces
+    // through here (it lives outside _app, so this only fires for /dashboard etc).
+    if (!context.auth.devTenantId) {
+      throw redirect({ to: "/onboarding" });
     }
   },
   component: AppShell,
@@ -119,6 +126,9 @@ function AppShell() {
         fontSize: 13,
       }}
     >
+      <a href="#main-content" className="skip-to-content">
+        Skip to content
+      </a>
       {narrowNav && sidebarOpen && (
         <button
           type="button"
@@ -139,6 +149,8 @@ function AppShell() {
       {/* Sidebar */}
       <aside
         id="app-sidebar"
+        role="navigation"
+        aria-label="Primary"
         style={{
           background: "var(--surface-2)",
           borderRight: narrowNav ? "none" : "1px solid var(--border)",
@@ -378,6 +390,22 @@ function AppShell() {
                 {email}
               </span>
             </div>
+            <Link
+              to="/settings"
+              style={{
+                background: "none",
+                border: "none",
+                padding: 4,
+                cursor: "pointer",
+                color: "var(--muted)",
+                display: "flex",
+                alignItems: "center",
+                textDecoration: "none",
+              }}
+              title="Settings"
+            >
+              <Settings size={13} />
+            </Link>
             <button
               onClick={() => void auth.signOut()}
               style={{
@@ -391,7 +419,7 @@ function AppShell() {
               }}
               title="Sign out"
             >
-              <Settings size={13} />
+              <LogOut size={13} />
             </button>
           </div>
         </div>
@@ -400,7 +428,8 @@ function AppShell() {
       {/* Main */}
       <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Topbar */}
-        <div
+        <header
+          role="banner"
           style={{
             height: 44,
             borderBottom: "1px solid var(--border)",
@@ -464,14 +493,14 @@ function AppShell() {
               ⌘K
             </span>
           </span>
-        </div>
+        </header>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <main id="main-content" style={{ flex: 1, overflow: "auto" }} tabIndex={-1}>
           <div style={{ padding: 20 }}>
             <Outlet />
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

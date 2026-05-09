@@ -19,12 +19,33 @@ Harnex is a multitenant backend that lets agents discover and execute against an
 
 ## Commands
 
-### Backend (run from repo root)
+### Docker (full stack — recommended for local dev)
+
+```bash
+# First-time setup
+cp .env.example .env    # fill in POSTGRES_PASSWORD, KEYCLOAK_DB_PASSWORD,
+                        # INFISICAL_ENCRYPTION_KEY (exactly 32 chars), INFISICAL_AUTH_SECRET
+docker compose build    # build api + web images
+docker compose up -d    # start everything
+
+# After Infisical starts, visit http://localhost:8090/admin/signup to create an admin account,
+# then create a project + machine identity and fill INFISICAL_CLIENT_ID / INFISICAL_CLIENT_SECRET
+# into .env; the api will pick up InfisicalVault automatically on next restart.
+```
+
+**Docker gotchas:**
+- `DATABASE_URL` in `.env` is for local (non-docker) runs. Docker builds its own URL from `POSTGRES_*` vars — you never need two DATABASE_URL values.
+- `INFISICAL_ENCRYPTION_KEY` must be **exactly 32 characters** (raw bytes, not hex). AES-256 needs 32 bytes; a 64-char hex string is 64 bytes and will crash Infisical's KMS init. Generate with `LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32`.
+- If Infisical fails with "Invalid key length" after changing `ENCRYPTION_KEY`, wipe its DB volume (`docker compose stop infisical infisical-db && docker compose rm -f infisical infisical-db && docker volume rm harnex_harnex_infisical_db`) and bring it back up.
+- `web/Dockerfile` pins `pnpm@9` to match the lockfile format. Do not bump to `pnpm@latest` — pnpm 10 changed its build-script security model and blocks esbuild, causing the web build to fail.
+- When Infisical credentials (`INFISICAL_CLIENT_ID` + `INFISICAL_CLIENT_SECRET` + `INFISICAL_PROJECT_ID`) are not set, the API falls back to `InMemoryVault` — secrets are lost on restart. Fine for smoke-testing; not for persisting connections.
+
+### Backend (run from repo root, non-docker)
 
 ```bash
 # First-time setup
 cp .env.example .env                              # then fill in secrets
-docker compose up -d postgres keycloak infisical  # start deps
+docker compose up -d postgres keycloak infisical  # start deps only
 uv sync --extra dev                               # install deps incl. dev
 uv run alembic upgrade head                       # apply migrations
 

@@ -8,12 +8,12 @@ interface HarnexLogoProps {
 
 export function HarnexLogo({
   size = 24,
-  accent = "var(--accent)",
-  ink = "var(--ink)",
+  accent = "var(--logo-accent, var(--accent))",
+  ink = "var(--logo-ink, var(--ink))",
   showWordmark = true,
   dark = false,
 }: HarnexLogoProps) {
-  const inkC = dark ? "#FAFAF7" : ink;
+  const inkC = dark ? "var(--logo-ink-on-dark, #FAFAF7)" : ink;
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-label="Harnex">
