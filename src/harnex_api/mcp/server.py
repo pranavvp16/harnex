@@ -197,7 +197,7 @@ _JSONRPC_AUTH_ERROR_CODE = -32001
 
 
 async def _drain_body(receive: Any) -> bytes:
-    """Read the full ASGI request body. Caller must not need to replay it."""
+    """Read the full ASGI request body."""
     chunks: list[bytes] = []
     while True:
         message = await receive()
@@ -208,6 +208,21 @@ async def _drain_body(receive: Any) -> bytes:
         else:
             break
     return b"".join(chunks)
+
+
+def _receive_replay(body: bytes) -> Any:
+    """ASGI receive that replays a captured body once, then disconnects."""
+
+    sent = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    return receive
 
 
 def _extract_jsonrpc_id(body: bytes) -> Any:
@@ -258,8 +273,9 @@ def build_streamable_http_app() -> Any:
         token = _extract_bearer(request)
         if not token:
             body = await _drain_body(receive)
+            receive_replay = _receive_replay(body)
             await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _AUTH_HINT)(
-                scope, receive, send
+                scope, receive_replay, send
             )
             return
         try:
@@ -267,9 +283,10 @@ def build_streamable_http_app() -> Any:
                 auth = await authenticate_key(session, token)
         except ApiKeyAuthError as exc:
             body = await _drain_body(receive)
-            await _jsonrpc_auth_error(
-                _extract_jsonrpc_id(body), f"{exc}. {_AUTH_HINT}"
-            )(scope, receive, send)
+            receive_replay = _receive_replay(body)
+            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), f"{exc}. {_AUTH_HINT}")(
+                scope, receive_replay, send
+            )
             return
 
         ctx_token = _caller_context.set(

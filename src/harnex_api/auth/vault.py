@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 import httpx
@@ -78,26 +79,36 @@ class InfisicalVault:
     def _folder(path: str) -> str:
         return "/" + path.strip("/")
 
+    async def _with_token_retry(
+        self, call: Callable[[], Awaitable[httpx.Response]]
+    ) -> httpx.Response:
+        r = await call()
+        if r.status_code != 401:
+            return r
+        self._token = None
+        await self._refresh_token()
+        return await call()
+
     async def _get(self, path: str) -> httpx.Response:
-        hdrs = await self._token_headers()
         params: dict[str, str] = {
             "workspaceId": self._project_id,
             "environment": self._environment,
             "secretPath": self._folder(path),
         }
-        async with httpx.AsyncClient() as c:
-            r = await c.get(
-                f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
-                headers=hdrs,
-                params=params,
-                timeout=10.0,
-            )
-        if r.status_code == 401:
-            self._token = None
-        return r
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                return await c.get(
+                    f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                    headers=hdrs,
+                    params=params,
+                    timeout=10.0,
+                )
+
+        return await self._with_token_retry(once)
 
     async def _upsert(self, path: str, values: dict[str, str]) -> httpx.Response:
-        hdrs = await self._token_headers()
         body: dict[str, Any] = {
             "workspaceId": self._project_id,
             "environment": self._environment,
@@ -105,23 +116,26 @@ class InfisicalVault:
             "secretValue": json.dumps(values),
             "type": "shared",
         }
-        async with httpx.AsyncClient() as c:
-            r = await c.patch(
-                f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
-                headers=hdrs,
-                json=body,
-                timeout=10.0,
-            )
-            if r.status_code == 404:
-                r = await c.post(
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                r = await c.patch(
                     f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
                     headers=hdrs,
                     json=body,
                     timeout=10.0,
                 )
-        if r.status_code == 401:
-            self._token = None
-        return r
+                if r.status_code == 404:
+                    r = await c.post(
+                        f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                        headers=hdrs,
+                        json=body,
+                        timeout=10.0,
+                    )
+                return r
+
+        return await self._with_token_retry(once)
 
     async def get_secret(self, path: str) -> dict[str, str] | None:
         r = await self._get(path)
@@ -135,24 +149,26 @@ class InfisicalVault:
         r.raise_for_status()
 
     async def delete_secret(self, path: str) -> None:
-        hdrs = await self._token_headers()
         body: dict[str, Any] = {
             "workspaceId": self._project_id,
             "environment": self._environment,
             "secretPath": self._folder(path),
         }
-        async with httpx.AsyncClient() as c:
-            r = await c.request(
-                "DELETE",
-                f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
-                headers=hdrs,
-                json=body,
-                timeout=10.0,
-            )
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                return await c.request(
+                    "DELETE",
+                    f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                    headers=hdrs,
+                    json=body,
+                    timeout=10.0,
+                )
+
+        r = await self._with_token_retry(once)
         if r.status_code == 404:
             return
-        if r.status_code == 401:
-            self._token = None
         r.raise_for_status()
 
 
