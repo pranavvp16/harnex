@@ -119,6 +119,9 @@ function AppShell() {
         fontSize: 13,
       }}
     >
+      <a href="#main-content" className="skip-to-content">
+        Skip to content
+      </a>
       {narrowNav && sidebarOpen && (
         <button
           type="button"
@@ -139,6 +142,8 @@ function AppShell() {
       {/* Sidebar */}
       <aside
         id="app-sidebar"
+        role="navigation"
+        aria-label="Primary"
         style={{
           background: "var(--surface-2)",
           borderRight: narrowNav ? "none" : "1px solid var(--border)",
@@ -400,7 +405,8 @@ function AppShell() {
       {/* Main */}
       <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Topbar */}
-        <div
+        <header
+          role="banner"
           style={{
             height: 44,
             borderBottom: "1px solid var(--border)",
@@ -464,14 +470,14 @@ function AppShell() {
               ⌘K
             </span>
           </span>
-        </div>
+        </header>
 
         {/* Content */}
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <main id="main-content" style={{ flex: 1, overflow: "auto" }} tabIndex={-1}>
           <div style={{ padding: 20 }}>
             <Outlet />
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
+from starlette.responses import RedirectResponse
 
 from harnex_api import __version__
 from harnex_api.api.routes import (
@@ -22,6 +23,7 @@ from harnex_api.api.routes import (
     tenants,
     usage,
 )
+from harnex_api.auth.vault import InfisicalVault, set_vault
 from harnex_api.config import AppSettings, get_settings
 from harnex_api.db.session import session_scope
 from harnex_api.logging import configure_logging, get_logger
@@ -56,6 +58,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
     log = get_logger("harnex_api")
     log.info("startup", env=settings.env, version=__version__)
+
+    # Wire up Infisical vault when credentials are present; fall back to InMemoryVault.
+    _cid = settings.infisical_client_id.get_secret_value()
+    _csec = settings.infisical_client_secret.get_secret_value()
+    if _cid and _csec and settings.infisical_project_id:
+        set_vault(
+            InfisicalVault(
+                base_url=settings.infisical_base_url,
+                project_id=settings.infisical_project_id,
+                environment=settings.infisical_environment,
+                client_id=_cid,
+                client_secret=_csec,
+            )
+        )
+        log.info("vault", backend="infisical", base_url=settings.infisical_base_url)
+    else:
+        log.info("vault", backend="in_memory")
+
     if settings.env in ("local", "dev"):
         try:
             await _seed_dev_tenant()
@@ -138,6 +158,16 @@ def create_app() -> FastAPI:
     app.include_router(execute.router)
     app.include_router(tenants.router)
     app.include_router(me.router)
+
+    @app.api_route(
+        "/mcp",
+        methods=["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        include_in_schema=False,
+    )
+    async def _mcp_redirect_slash(request: Request) -> RedirectResponse:
+        """Starlette's Mount matches `/mcp/...` but not bare `/mcp`; normalize for clients."""
+        suffix = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"/mcp/{suffix}", status_code=307)
 
     # MCP shipped surface — exactly two tools (search, execute), bearer auth via tenant API keys.
     app.mount("/mcp", build_streamable_http_app())
