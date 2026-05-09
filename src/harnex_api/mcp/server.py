@@ -60,7 +60,8 @@ def create_mcp_app() -> FastMCP:
     Tool docstrings are part of the wire contract — agents read them to decide
     when to call. Keep them concise and behaviorally specific.
     """
-    mcp = FastMCP("harnex")
+    # Mounted at `/mcp` in `main.py`; Starlette strips that prefix so the inner path is `/`.
+    mcp = FastMCP("harnex", streamable_http_path="/")
 
     @mcp.tool()
     async def search(

@@ -5,6 +5,9 @@ import { defineConfig, loadEnv } from "vite";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
+  const devApiTarget =
+    (env.VITE_HARNEX_API_URL && env.VITE_HARNEX_API_URL.replace(/\/$/, "")) ||
+    "http://127.0.0.1:8000";
   return {
     plugins: [
       TanStackRouterVite({
@@ -23,7 +26,7 @@ export default defineConfig(({ mode }) => {
       port: 5173,
       proxy: {
         "/v1": {
-          target: env.VITE_HARNEX_API_URL ?? "http://localhost:8000",
+          target: devApiTarget,
           changeOrigin: true,
         },
       },

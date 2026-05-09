@@ -3,6 +3,7 @@
 
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harnex}
@@ -23,6 +24,7 @@ services:
       retries: 10
 
   keycloak-db:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
@@ -41,6 +43,7 @@ services:
       retries: 10
 
   keycloak:
+    restart: unless-stopped
     image: quay.io/keycloak/keycloak:25.0
     command: start-dev
     environment:
@@ -60,6 +63,7 @@ services:
         condition: service_healthy
 
   infisical-db:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${INFISICAL_POSTGRES_USER:-infisical}
@@ -78,6 +82,7 @@ services:
       retries: 10
 
   infisical-redis:
+    restart: unless-stopped
     image: redis:7-alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -86,6 +91,7 @@ services:
       retries: 10
 
   infisical:
+    restart: unless-stopped
     image: infisical/infisical:latest
     environment:
       ENCRYPTION_KEY: ${INFISICAL_ENCRYPTION_KEY:?set INFISICAL_ENCRYPTION_KEY in .env}
@@ -106,13 +112,14 @@ services:
         condition: service_healthy
 
   api:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
     environment:
       HARNEX_ENV: ${HARNEX_ENV:-dev}
       HARNEX_LOG_LEVEL: ${HARNEX_LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL for Docker (postgres hostname) in .env}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-harnex}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-harnex}
       KEYCLOAK_BASE_URL: ${KEYCLOAK_INTERNAL_BASE_URL:-http://keycloak:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-harnex}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-harnex-api}
@@ -129,8 +136,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   web:
+    restart: unless-stopped
     build:
       context: ./web
       dockerfile: Dockerfile
@@ -144,7 +158,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   harnex_postgres:

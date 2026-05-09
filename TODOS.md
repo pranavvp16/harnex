@@ -1,98 +1,73 @@
 # TODOS
 
-Work items from `/devex-review` (2026-05-07).
+Working backlog: add new items under **Open** with severity + owner context. When done, move a one-line summary to **Completed** (keep history short).
 
 ---
 
-## TODO 1: Seed dev tenant on first startup
+## Open
 
-**What:** Add a startup hook (Alembic migration data seed, `docker-compose` post-start command, or FastAPI startup event) that ensures the dev tenant `11111111-1111-1111-1111-111111111111` exists in the `tenants` table when `HARNEX_ENV=local`.
+### TODO 11 | HIGH | MCPAuthenticated Requests Return 500
 
-**Why:** The console auto-authenticates with a hardcoded dev tenant UUID. When the tenant row is missing, every POST/PUT/DELETE fails with a SQLAlchemy `IntegrityError` (foreign key violation) that bubbles up as an uncaught 500. The console is completely read-only — no API key creation, no connection creation, no execution.
+**Files:** `src/harnex_api/mcp/server.py` line 237, `src/harnex_api/main.py` line 56/173
 
-**Pros:** Console becomes fully functional out of the box. Eliminates the #1 blocker in the developer getting-started flow.
+**What:** `POST /mcp/` with a valid `Authorization: Bearer hnx...` key returns HTTP 500. The MCP no-auth path works correctly (returns JSON-RPC `-32001` error), but once auth passes, the underlying FastMCP streamable HTTP app crashes.
 
-**Cons:** Need to handle idempotency (`INSERT … ON CONFLICT DO NOTHING`) so the seed doesn't fail on restart.
+**Root cause:** `FastMCP.streamable_http_app()` creates a Starlette ASGI app with a `session_manager` that requires an ASGI lifespan event to initialize its task group. When mounted via `app.mount("/mcp", build_streamable_http_app())`, FastAPI doesn't trigger the sub-app's lifespan, so the task group is never initialized. Result: `RuntimeError: Task group is not initialized. Make sure to use run().`
 
-**Context:**
-- Backend: `src/harnex_api/db/models.py` — Tenant model
-- Backend: `docker-compose.yml` or `src/harnex_api/main.py` — startup hooks
-- Auth: `src/harnex_api/api/dependencies/auth.py` — `get_tenant_context()` accepts `X-Harnex-Dev-Tenant` in local/dev mode
-
-**Depends on / blocked by:** Nothing.
-
----
-
-## TODO 2: Return JSON-RPC error from MCP endpoint when unauthenticated
-
-**What:** `src/harnex_api/mcp/server.py` — when the MCP tools/list or tools/call handler receives a request without a valid `Authorization: Bearer` token, return a proper JSON-RPC error response instead of an empty body.
-
-**Why:** Currently `curl localhost:8000/mcp` returns an empty response. A developer trying to use the MCP surface gets dead silence with no clue that authentication is needed, no link to create a key, no error code. This is the first touchpoint for the actual product surface and it's a black hole.
-
-**Pros:** Self-documenting endpoint. Developer knows exactly what to do: create an API key and pass it as a Bearer token. Follows the JSON-RPC error convention.
-
-**Cons:** Needs a decision on whether to return the error for tools/list (which some MCP clients call pre-auth) vs tools/call (which should always require auth).
-
-**Context:**
-- `src/harnex_api/mcp/server.py` — `build_streamable_http_app()`, tool definitions
-- `src/harnex_api/services/api_key_auth.py` — `authenticate_key()`
-
-**Example response:**
-```json
-{"jsonrpc":"2.0","error":{"code":-32001,"message":"Authentication required. Create an API key at http://localhost:5173/api-keys and pass Authorization: Bearer hnx..."},"id":null}
+**Docker logs:**
+```
+mcp/server/fastmcp/server.py:1095 → session_manager.handle_request
+mcp/server/streamable_http_manager.py:156 → RuntimeError: Task group is not initialized. Make sure to use run().
 ```
 
-**Depends on / blocked by:** TODO 1 (need a working API key to test with).
+**Repro:**
+1. Create an API key via the console
+2. `curl -s -X POST http://localhost:8000/mcp/ -H "Authorization: Bearer hnx..." -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'`
+3. Returns 500 Internal Server Error
+
+**Fix options:**
+- **A (recommended):** Call `await mcp_server.session_manager.run()` in the FastAPI `lifespan()` function, after dev tenant seed. Requires making the MCP app instance accessible in the lifespan scope (e.g., create it as a module-level singleton and import it).
+- **B:** Use FastMCP's `sse_app()` transport instead of `streamable_http_app()` (SSE transport is more mature but deprecated in MCP spec v2).
+- **C:** Mount the MCP app under a sub-path that includes its own lifespan handling via Starlette's Router.
+
+**Additional note:** The auth middleware in `build_streamable_http_app()` creates a Starlette `Request` object to extract the Bearer token, which consumes the ASGI `receive` channel. When auth fails, this is fine (body is drained and discarded). When auth succeeds, the middleware forwards `scope, receive, send` to `inner`, but `receive` has already been consumed by `Request`. Fix this alongside the lifespan issue — either extract the Bearer from `scope["headers"]` directly, or drain+replay the body.
 
 ---
 
-## TODO 3: Catch IntegrityError in POST handlers and return 400
+### TODO 12 | MEDIUM | Revocation Confirmation Renders Inline Instead of Modal
 
-**What:** Add a global exception handler or per-route try/except that catches `sqlalchemy.exc.IntegrityError` and returns a structured 400 error with the constraint name and a human-readable message.
+**Files:** `web/src/routes/_app/api-keys.tsx` lines 425-432
 
-**Why:** When the dev tenant FK check fails (or any future constraint violation), the raw SQLAlchemy exception propagates to FastAPI's default 500 handler. The user sees "Internal Server Error" with zero information. The real error is buried in docker logs. This happens for every POST/PUT/DELETE when the tenant isn't seeded, but it will also happen for duplicate key names, bad scope connection_ids, etc.
+**What:** Clicking "Revoke" on an API key row shows the confirmation dialog inline below the row rather than as a centered modal overlay with backdrop. The standard pattern for destructive actions is a modal dialog. The code has a `<Modal>` component and `confirmRevoke` state, but the modal renders inline.
 
-**Pros:** Every constraint violation returns a meaningful error. Developer can self-diagnose. Works for all future schema constraints automatically.
-
-**Cons:** Must be careful not to leak internal schema details (table names, column names) in production errors. Condition on `HARNEX_ENV` or sanitize the message.
-
-**Context:**
-- `src/harnex_api/main.py` — FastAPI app, exception handlers
-- `src/harnex_api/api/routes/api_keys.py`, `connections.py` — POST handlers
-
-**Depends on / blocked by:** Nothing.
+**Fix:** Ensure the `<Modal>` component uses a React portal or overlay wrapper to render centered. Check that `open={confirmRevoke !== null}` is being passed correctly and that `Modal` renders through a portal.
 
 ---
 
-## TODO 4: Fix two persistent 404s on every console page load
+### TODO 13 | LOW | Dashboard Shows Positive Deltas on Zero Data
 
-**What:** Either implement `GET /v1/usage/current` or remove the frontend call that hits it. Also fix the second 404 (unknown resource) that fires on every page load.
+**Files:** `web/src/routes/_app/dashboard.tsx`
 
-**Why:** The browser console logs two 404 errors on EVERY page load. Developer sees red error lines that look like the site is broken. The `/v1/usage/current` endpoint returns 404 on the API side, and the frontend keeps calling it.
+**What:** Dashboard shows "+2 this week" next to "Connections 0 — none yet" and "+18% vs last" next to "Executions 0 this month". These positive deltas on zero data are misleading.
 
-**Pros:** Clean console. No false-alarm errors that mask real issues.
-
-**Cons:** If usage/current is planned for later, removing the call means re-adding it. Better to stub the endpoint returning `{"used":0,"limit":1000}`.
-
-**Context:**
-- Backend: `src/harnex_api/api/routes/usage.py` — may or may not have the endpoint
-- Frontend: `web/src/routes/_app/dashboard.tsx` — usage query, likely via `useApi().getUsage()`
-
-**Depends on / blocked by:** Nothing.
+**Fix:** When the count is 0, suppress the delta metric or show "—" instead of a fake positive number.
 
 ---
 
-## TODO 5: Style the 404 page with navigation
+## Completed — `/devex-review` (2026-05-07)
 
-**What:** `web/src/routes/__root.tsx` (or wherever the catch-all/not-found route is defined) — replace the bare "Not Found" text with a styled page showing the Harnex logo, a clear "Page not found" message, and a link back to the dashboard.
+- **TODO 1:** Seed dev tenant on first startup → `services/tenant/seed.py`; called from `main.py` lifespan
+- **TODO 2:** JSON-RPC auth error from MCP → `mcp/server.py` middleware; `-32001` + 401 + `WWW-Authenticate`
+- **TODO 3:** Catch IntegrityError → 400 → `main.py` global exception handler
+- **TODO 4:** Fix persistent 404s → stubbed `/v1/usage/current`; dashboard query removed
+- **TODO 5:** Style the 404 page → `__root.tsx` `notFoundComponent` with logo + dashboard link
 
-**Why:** Navigating to any unknown route shows "Not Found" in the browser's default serif font. No navigation, no branding, no way to get back except the browser back button.
+---
 
-**Pros:** One component. Handles all 404s. Standard pattern.
+## Completed — `/qa` (2026-05-09)
 
-**Cons:** Low priority relative to the blockers above.
-
-**Context:**
-- `web/src/routes/__root.tsx` — likely has a `notFoundComponent` or catch-all
-
-**Depends on / blocked by:** Nothing.
+- **TODO 6:** Docker Compose stability (`docker-compose.yml`) — `restart: unless-stopped` on services; API `healthcheck`; `web` `depends_on: api` with `condition: service_healthy`.
+- **TODO 7:** Vite first-run dev tenant — `web/.env.development` + `web/.env.example`; default API base empty (same-origin `/v1` + proxy in `vite.config.ts`).
+- **TODO 8:** API key “Failed to fetch” / wrong URLs — fixed `env.apiUrl` default so paths `/v1/...` are not doubled (`web/src/lib/env.ts`).
+- **TODO 9:** MCP `/mcp` vs `/mcp/` — `FastMCP(..., streamable_http_path="/")`; `307` redirect bare `/mcp` → `/mcp/` (`src/harnex_api/mcp/server.py`, `main.py`); `tests/integration/test_mcp_smoke.py`.
+- **TODO 10:** ARIA landmarks — skip link + `role="navigation"` / `role="banner"` / `<main id="main-content">` (`web/src/routes/_app.tsx`, `web/src/styles/globals.css`).
