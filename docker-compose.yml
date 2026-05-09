@@ -3,6 +3,7 @@
 
 services:
   postgres:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harnex}
@@ -23,6 +24,7 @@ services:
       retries: 10
 
   keycloak-db:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
@@ -41,8 +43,9 @@ services:
       retries: 10
 
   keycloak:
+    restart: unless-stopped
     image: quay.io/keycloak/keycloak:25.0
-    command: start-dev
+    command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
@@ -53,6 +56,8 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -60,6 +65,7 @@ services:
         condition: service_healthy
 
   infisical-db:
+    restart: unless-stopped
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${INFISICAL_POSTGRES_USER:-infisical}
@@ -78,6 +84,7 @@ services:
       retries: 10
 
   infisical-redis:
+    restart: unless-stopped
     image: redis:7-alpine
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -86,6 +93,7 @@ services:
       retries: 10
 
   infisical:
+    restart: unless-stopped
     image: infisical/infisical:latest
     environment:
       ENCRYPTION_KEY: ${INFISICAL_ENCRYPTION_KEY:?set INFISICAL_ENCRYPTION_KEY in .env}
@@ -106,17 +114,30 @@ services:
         condition: service_healthy
 
   api:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: Dockerfile
     environment:
       HARNEX_ENV: ${HARNEX_ENV:-dev}
       HARNEX_LOG_LEVEL: ${HARNEX_LOG_LEVEL:-INFO}
-      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL for Docker (postgres hostname) in .env}
+      # docker-entrypoint.sh assembles DATABASE_URL from POSTGRES_* with URL-encoded
+      # password. Don't pass through the host's DATABASE_URL — the .env value targets
+      # localhost for non-docker runs and would leak into the container.
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-harnex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-harnex}
       KEYCLOAK_BASE_URL: ${KEYCLOAK_INTERNAL_BASE_URL:-http://keycloak:8080}
+      # Public issuer URL — must match what end-users hit (the SPA goes via the
+      # host-published port at http://localhost:8080), so tokens carry that as `iss`.
+      KEYCLOAK_ISSUER_BASE_URL: ${KEYCLOAK_PUBLIC_BASE_URL:-http://localhost:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-harnex}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-harnex-api}
       KEYCLOAK_JWKS_CACHE_SECONDS: ${KEYCLOAK_JWKS_CACHE_SECONDS:-300}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-harnex-admin-cli}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       INFISICAL_BASE_URL: ${INFISICAL_INTERNAL_BASE_URL:-http://infisical:8080}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-dev}
@@ -129,8 +150,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
   web:
+    restart: unless-stopped
     build:
       context: ./web
       dockerfile: Dockerfile
@@ -144,7 +172,8 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   harnex_postgres:

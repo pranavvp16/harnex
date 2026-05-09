@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from typing import Protocol
+import json
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
+
+import httpx
 
 from harnex_api.db.models import AuthFlow
 
@@ -28,6 +32,144 @@ class InMemoryVault:
 
     async def delete_secret(self, path: str) -> None:
         self._data.pop(path, None)
+
+
+class InfisicalVault:
+    """Secrets vault backed by self-hosted Infisical via the REST API.
+
+    Uses Universal Auth (machine identity). Each vault path maps to an Infisical
+    folder; the full credential bag is stored as a single JSON-encoded secret
+    named CREDENTIALS within that folder.
+    """
+
+    _KEY = "CREDENTIALS"
+
+    def __init__(
+        self,
+        base_url: str,
+        project_id: str,
+        environment: str,
+        client_id: str,
+        client_secret: str,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._project_id = project_id
+        self._environment = environment
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._token: str | None = None
+
+    async def _refresh_token(self) -> str:
+        async with httpx.AsyncClient() as c:
+            r = await c.post(
+                f"{self._base_url}/api/v1/auth/universal-auth/login",
+                json={"clientId": self._client_id, "clientSecret": self._client_secret},
+                timeout=10.0,
+            )
+            r.raise_for_status()
+            self._token = str(r.json()["accessToken"])
+            return self._token
+
+    async def _token_headers(self) -> dict[str, str]:
+        if not self._token:
+            await self._refresh_token()
+        return {"Authorization": f"Bearer {self._token}"}
+
+    @staticmethod
+    def _folder(path: str) -> str:
+        return "/" + path.strip("/")
+
+    async def _with_token_retry(
+        self, call: Callable[[], Awaitable[httpx.Response]]
+    ) -> httpx.Response:
+        r = await call()
+        if r.status_code != 401:
+            return r
+        self._token = None
+        await self._refresh_token()
+        return await call()
+
+    async def _get(self, path: str) -> httpx.Response:
+        params: dict[str, str] = {
+            "workspaceId": self._project_id,
+            "environment": self._environment,
+            "secretPath": self._folder(path),
+        }
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                return await c.get(
+                    f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                    headers=hdrs,
+                    params=params,
+                    timeout=10.0,
+                )
+
+        return await self._with_token_retry(once)
+
+    async def _upsert(self, path: str, values: dict[str, str]) -> httpx.Response:
+        body: dict[str, Any] = {
+            "workspaceId": self._project_id,
+            "environment": self._environment,
+            "secretPath": self._folder(path),
+            "secretValue": json.dumps(values),
+            "type": "shared",
+        }
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                r = await c.patch(
+                    f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                    headers=hdrs,
+                    json=body,
+                    timeout=10.0,
+                )
+                if r.status_code == 404:
+                    r = await c.post(
+                        f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                        headers=hdrs,
+                        json=body,
+                        timeout=10.0,
+                    )
+                return r
+
+        return await self._with_token_retry(once)
+
+    async def get_secret(self, path: str) -> dict[str, str] | None:
+        r = await self._get(path)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return dict(json.loads(r.json()["secret"]["secretValue"]))
+
+    async def set_secret(self, path: str, values: dict[str, str]) -> None:
+        r = await self._upsert(path, values)
+        r.raise_for_status()
+
+    async def delete_secret(self, path: str) -> None:
+        body: dict[str, Any] = {
+            "workspaceId": self._project_id,
+            "environment": self._environment,
+            "secretPath": self._folder(path),
+        }
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                return await c.request(
+                    "DELETE",
+                    f"{self._base_url}/api/v3/secrets/raw/{self._KEY}",
+                    headers=hdrs,
+                    json=body,
+                    timeout=10.0,
+                )
+
+        r = await self._with_token_retry(once)
+        if r.status_code == 404:
+            return
+        r.raise_for_status()
 
 
 _vault: SecretsVault = InMemoryVault()
@@ -65,6 +207,7 @@ async def load_connection_credentials(
 
 __all__ = [
     "InMemoryVault",
+    "InfisicalVault",
     "SecretsVault",
     "connection_secret_path",
     "connector_token_path",
