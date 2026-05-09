@@ -10,8 +10,12 @@ GET against the resolved base URL.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
+import socket
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,6 +27,66 @@ from harnex_api.db.models import AuthFlow, ConnectionMode
 TEST_TIMEOUT_SECONDS = 8.0
 
 
+def _is_blocked_destination_ip(ip: str) -> bool:
+    """True when the IP must not be reached by wizard connection tests (SSRF guard)."""
+    try:
+        parsed = ipaddress.ip_address(ip)
+    except ValueError:
+        return True
+    return bool(
+        parsed.is_private
+        or parsed.is_loopback
+        or parsed.is_link_local
+        or parsed.is_multicast
+        or parsed.is_reserved
+        or parsed.is_unspecified
+    )
+
+
+async def _resolved_ips(hostname: str) -> list[str]:
+    """Resolve hostname to unique IPs (IPv4 and IPv6)."""
+
+    def _lookup() -> list[str]:
+        try:
+            infos = socket.getaddrinfo(hostname, None, type=socket.SOCK_STREAM)
+        except socket.gaierror:
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for info in infos:
+            ip = str(info[4][0])
+            if ip not in seen:
+                seen.add(ip)
+                out.append(ip)
+        return out
+
+    return await asyncio.to_thread(_lookup)
+
+
+async def _guard_public_http_url(url: str) -> tuple[bool, str]:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False, "only http and https URLs can be tested"
+    host = parsed.hostname
+    if not host:
+        return False, "missing host in URL"
+
+    try:
+        literal = ipaddress.ip_address(host)
+        if _is_blocked_destination_ip(str(literal)):
+            return False, "target uses a non-public IP address"
+        return True, ""
+    except ValueError:
+        pass
+
+    ips = await _resolved_ips(host)
+    if not ips:
+        return False, "could not resolve hostname"
+
+    for ip in ips:
+        if _is_blocked_destination_ip(ip):
+            return False, "hostname resolves to a non-public IP address"
+    return True, ""
 @dataclass(frozen=True)
 class ConnectionTestInput:
     mode: ConnectionMode
@@ -54,6 +118,14 @@ def _resolve_test_endpoint(connector_key: str | None) -> ConnectorTestEndpoint:
 
 
 def _resolve_base_url(payload: ConnectionTestInput) -> str | None:
+    if payload.mode == ConnectionMode.builtin:
+        if not payload.connector_key:
+            return None
+        register_builtins()
+        if not registry.has(payload.connector_key):
+            return None
+        default = getattr(registry.get(payload.connector_key), "default_base_url", None)
+        return str(default).rstrip("/") if default else None
     if payload.base_url:
         return payload.base_url.rstrip("/")
     if payload.connector_key:
@@ -101,6 +173,18 @@ async def test_connection_config(payload: ConnectionTestInput) -> ConnectionTest
     auth = _build_auth_context(payload)
 
     target = f"{base_url}{endpoint.path}"
+    ok_dest, dest_msg = await _guard_public_http_url(f"{base_url}/")
+    if not ok_dest:
+        return ConnectionTestResult(
+            ok=False,
+            http_status=None,
+            method=endpoint.method,
+            url=target,
+            error_kind="ssrf_blocked",
+            message=dest_msg,
+            duration_ms=0,
+        )
+
     headers = dict(auth.headers)
     if endpoint.body is not None:
         headers.setdefault("Content-Type", "application/json")

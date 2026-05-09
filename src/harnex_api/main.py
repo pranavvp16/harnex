@@ -55,46 +55,51 @@ async def _provision_sandbox(settings: AppSettings) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    settings = get_settings()
-    configure_logging(settings.log_level)
-    log = get_logger("harnex_api")
-    log.info("startup", env=settings.env, version=__version__)
+    from harnex_api.mcp.server import get_mcp_app
 
-    # Wire up Infisical vault when credentials are present; fall back to InMemoryVault.
-    _cid = settings.infisical_client_id.get_secret_value()
-    _csec = settings.infisical_client_secret.get_secret_value()
-    if _cid and _csec and settings.infisical_project_id:
-        set_vault(
-            InfisicalVault(
-                base_url=settings.infisical_base_url,
-                project_id=settings.infisical_project_id,
-                environment=settings.infisical_environment,
-                client_id=_cid,
-                client_secret=_csec,
+    mcp = get_mcp_app()
+    _ = mcp.streamable_http_app()
+    async with mcp.session_manager.run():
+        settings = get_settings()
+        configure_logging(settings.log_level)
+        log = get_logger("harnex_api")
+        log.info("startup", env=settings.env, version=__version__)
+
+        # Wire up Infisical vault when credentials are present; fall back to InMemoryVault.
+        _cid = settings.infisical_client_id.get_secret_value()
+        _csec = settings.infisical_client_secret.get_secret_value()
+        if _cid and _csec and settings.infisical_project_id:
+            set_vault(
+                InfisicalVault(
+                    base_url=settings.infisical_base_url,
+                    project_id=settings.infisical_project_id,
+                    environment=settings.infisical_environment,
+                    client_id=_cid,
+                    client_secret=_csec,
+                )
             )
-        )
-        log.info("vault", backend="infisical", base_url=settings.infisical_base_url)
-    else:
-        log.info("vault", backend="in_memory")
+            log.info("vault", backend="infisical", base_url=settings.infisical_base_url)
+        else:
+            log.info("vault", backend="in_memory")
 
-    if settings.env in ("local", "dev"):
+        if settings.env in ("local", "dev"):
+            try:
+                await _seed_dev_tenant()
+                log.info("dev_tenant_seeded", tenant_id=str(DEV_TENANT_ID))
+            except Exception as exc:
+                # Non-fatal — DB may be unreachable at boot in some local setups.
+                log.warning("dev_tenant_seed_failed", error=str(exc))
+        if settings.blaxel_api_key.get_secret_value():
+            try:
+                await _provision_sandbox(settings)
+                log.info("blaxel_sandbox_ready", name=settings.blaxel_sandbox_name)
+            except Exception as exc:
+                # Non-fatal — code-mode execute calls will fail gracefully at request time.
+                log.warning("blaxel_sandbox_unavailable", error=str(exc))
         try:
-            await _seed_dev_tenant()
-            log.info("dev_tenant_seeded", tenant_id=str(DEV_TENANT_ID))
-        except Exception as exc:
-            # Non-fatal — DB may be unreachable at boot in some local setups.
-            log.warning("dev_tenant_seed_failed", error=str(exc))
-    if settings.blaxel_api_key.get_secret_value():
-        try:
-            await _provision_sandbox(settings)
-            log.info("blaxel_sandbox_ready", name=settings.blaxel_sandbox_name)
-        except Exception as exc:
-            # Non-fatal — code-mode execute calls will fail gracefully at request time.
-            log.warning("blaxel_sandbox_unavailable", error=str(exc))
-    try:
-        yield
-    finally:
-        log.info("shutdown")
+            yield
+        finally:
+            log.info("shutdown")
 
 
 def create_app() -> FastAPI:

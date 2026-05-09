@@ -113,6 +113,15 @@ services:
       infisical-redis:
         condition: service_healthy
 
+  redis:
+    restart: unless-stopped
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     restart: unless-stopped
     build:
@@ -143,12 +152,15 @@ services:
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-dev}
       INFISICAL_CLIENT_ID: ${INFISICAL_CLIENT_ID:-}
       INFISICAL_CLIENT_SECRET: ${INFISICAL_CLIENT_SECRET:-}
+      HARNEX_REDIS_URL: ${HARNEX_REDIS_URL:-redis://redis:6379/0}
       HARNEX_USE_FAKE_EMBEDDINGS: ${HARNEX_USE_FAKE_EMBEDDINGS:-1}
       HARNEX_USE_FAKE_VECTOR_SEARCH: ${HARNEX_USE_FAKE_VECTOR_SEARCH:-1}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]

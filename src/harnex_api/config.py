@@ -85,6 +85,10 @@ class AppSettings(BaseSettings):
     use_fake_embeddings: bool = Field(False, alias="HARNEX_USE_FAKE_EMBEDDINGS")
     use_fake_vector_search: bool = Field(False, alias="HARNEX_USE_FAKE_VECTOR_SEARCH")
 
+    # When empty, tenant-create rate limiting falls back to an in-memory deque (dev-only;
+    # resets per process and does not coordinate across workers).
+    redis_url: str = Field("", alias="HARNEX_REDIS_URL")
+
     @property
     def is_local(self) -> bool:
         return self.env == "local"
@@ -95,4 +99,4 @@ class AppSettings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
-    return AppSettings()  # type: ignore[call-arg]
+    return AppSettings()

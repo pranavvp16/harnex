@@ -29,6 +29,10 @@ from harnex_api.services.execute.runner import (
 )
 from harnex_api.services.search.service import SearchService
 
+# Singleton FastMCP instance — must match the app mounted at `/mcp` so lifespan can run
+# `session_manager.run()` on the same StreamableHTTPSessionManager FastMCP creates.
+_fast_mcp: FastMCP | None = None
+
 
 @dataclass(frozen=True)
 class _CallerContext:
@@ -55,11 +59,14 @@ def _require_caller() -> _CallerContext:
 
 
 def create_mcp_app() -> FastMCP:
-    """Build and return the FastMCP instance.
+    """Build (once) and return the FastMCP instance.
 
     Tool docstrings are part of the wire contract — agents read them to decide
     when to call. Keep them concise and behaviorally specific.
     """
+    global _fast_mcp
+    if _fast_mcp is not None:
+        return _fast_mcp
     # Mounted at `/mcp` in `main.py`; Starlette strips that prefix so the inner path is `/`.
     mcp = FastMCP("harnex", streamable_http_path="/")
 
@@ -175,7 +182,13 @@ def create_mcp_app() -> FastMCP:
             "path": outcome.path,
         }
 
+    _fast_mcp = mcp
     return mcp
+
+
+def get_mcp_app() -> FastMCP:
+    """Return the same FastMCP instance used by `build_streamable_http_app`."""
+    return create_mcp_app()
 
 
 def _extract_bearer(request: Request) -> str | None:
@@ -298,11 +311,13 @@ def build_streamable_http_app() -> Any:
             )
         )
         try:
-            await inner(scope, receive, send)
+            body = await _drain_body(receive)
+            receive_replay = _receive_replay(body)
+            await inner(scope, receive_replay, send)
         finally:
             _caller_context.reset(ctx_token)
 
     return app
 
 
-__all__ = ["build_streamable_http_app", "create_mcp_app"]
+__all__ = ["build_streamable_http_app", "create_mcp_app", "get_mcp_app"]
