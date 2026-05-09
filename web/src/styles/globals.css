@@ -48,6 +48,9 @@
     --accent-soft: #FFF1E6;
     --accent-border: #FED7AA;
     --accent-ink: #9A3412;
+    --logo-ink: #0A0A0A;
+    --logo-ink-on-dark: #FAF7F0;
+    --logo-accent: #F97316;
 
     --green: #16A34A;
     --green-soft: #DCFCE7;
@@ -112,6 +115,9 @@
     --accent-soft: rgba(251, 146, 60, 0.12);
     --accent-border: rgba(251, 146, 60, 0.30);
     --accent-ink: #FFD4B0;
+    --logo-ink: #FAF7F0;
+    --logo-ink-on-dark: #FAF7F0;
+    --logo-accent: #FB923C;
 
     --green: #4ADE80;
     --green-soft: rgba(74, 222, 128, 0.12);

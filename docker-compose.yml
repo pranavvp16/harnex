@@ -45,7 +45,7 @@ services:
   keycloak:
     restart: unless-stopped
     image: quay.io/keycloak/keycloak:25.0
-    command: start-dev
+    command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://keycloak-db:5432/${KEYCLOAK_DB_NAME:-keycloak}
@@ -56,6 +56,8 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
     ports:
       - "8080:8080"
     depends_on:
@@ -119,17 +121,23 @@ services:
     environment:
       HARNEX_ENV: ${HARNEX_ENV:-dev}
       HARNEX_LOG_LEVEL: ${HARNEX_LOG_LEVEL:-INFO}
-      # When empty, docker-entrypoint assembles DATABASE_URL with URL-encoded POSTGRES_PASSWORD.
-      DATABASE_URL: ${DATABASE_URL:-}
+      # docker-entrypoint.sh assembles DATABASE_URL from POSTGRES_* with URL-encoded
+      # password. Don't pass through the host's DATABASE_URL — the .env value targets
+      # localhost for non-docker runs and would leak into the container.
       POSTGRES_HOST: postgres
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:-harnex}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-harnex}
       KEYCLOAK_BASE_URL: ${KEYCLOAK_INTERNAL_BASE_URL:-http://keycloak:8080}
+      # Public issuer URL — must match what end-users hit (the SPA goes via the
+      # host-published port at http://localhost:8080), so tokens carry that as `iss`.
+      KEYCLOAK_ISSUER_BASE_URL: ${KEYCLOAK_PUBLIC_BASE_URL:-http://localhost:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-harnex}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-harnex-api}
       KEYCLOAK_JWKS_CACHE_SECONDS: ${KEYCLOAK_JWKS_CACHE_SECONDS:-300}
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-harnex-admin-cli}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
       INFISICAL_BASE_URL: ${INFISICAL_INTERNAL_BASE_URL:-http://infisical:8080}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-dev}

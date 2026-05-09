@@ -25,7 +25,7 @@ def app_with_failing_route():
             statement="INSERT INTO things",
             params={},
             orig=_FakeOrigError(
-                "duplicate key value violates unique constraint \"uq_things_name\"",
+                'duplicate key value violates unique constraint "uq_things_name"',
                 constraint_name="uq_things_name",
             ),
         )

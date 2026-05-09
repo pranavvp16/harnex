@@ -139,6 +139,21 @@
 .ob-fineprint a { color: var(--ink); border-bottom: 1px solid var(--border-strong); }
 .ob-fineprint a:hover { border-color: var(--ink); }
 
+.ob-signin-cta {
+  font-size: 13px; color: var(--slate); margin: 0;
+}
+.ob-signin-link {
+  color: var(--ink); font-weight: 500;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ob-signin-link:hover { border-color: var(--ink); }
+/* Button styled as a link — used for in-flow toggles that don't navigate. */
+.ob-signin-button {
+  background: none; padding: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  border: none; border-bottom: 1px solid var(--border-strong);
+}
+
 /* Forms */
 .ob-form { display: flex; flex-direction: column; gap: 18px; }
 .ob-field { display: flex; flex-direction: column; gap: 6px; }
@@ -218,7 +233,7 @@
 .ob-segment:last-child { border-right: none; }
 .ob-segment input { position: absolute; opacity: 0; pointer-events: none; }
 .ob-segment.is-active {
-  background: var(--ink); color: #fff; font-weight: 500;
+  background: var(--ink); color: var(--bg); font-weight: 500;
 }
 .ob-segment:not(.is-active):hover { background: var(--bg-alt); color: var(--ink); }
 
@@ -371,8 +386,9 @@
 .ob-right {
   position: relative;
   background:
-    radial-gradient(ellipse 70% 60% at 50% 50%, rgba(249,115,22,0.08), transparent 65%),
-    linear-gradient(180deg, #1B1A18 0%, #0E0E10 100%);
+    radial-gradient(ellipse 72% 58% at 52% 48%, rgba(249,115,22,0.12), transparent 64%),
+    radial-gradient(ellipse 65% 46% at 45% 72%, rgba(120,53,15,0.16), transparent 68%),
+    linear-gradient(180deg, #1A1917 0%, #0E0E10 100%);
   overflow: hidden;
   display: flex; align-items: center; justify-content: center;
 }
@@ -380,15 +396,23 @@
 .oc-stage {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
+  --oc-wire-soft: rgba(255, 248, 240, 0.72);
+  --oc-wire-hot: rgba(255, 248, 240, 0.92);
+}
+.oc-stage[data-step="3"],
+.oc-stage[data-step="4"] {
+  --oc-wire-soft: rgba(251, 146, 60, 0.72);
+  --oc-wire-hot: rgba(251, 146, 60, 0.96);
 }
 
 .oc-glow {
   position: absolute; inset: 0;
   background:
-    radial-gradient(circle at 50% 48%, rgba(249,115,22,0.18) 0%, rgba(249,115,22,0.04) 30%, transparent 60%),
-    radial-gradient(circle at 80% 90%, rgba(217,119,87,0.12) 0%, transparent 50%);
+    radial-gradient(circle at 50% 48%, rgba(249,115,22,0.28) 0%, rgba(249,115,22,0.08) 30%, transparent 58%),
+    radial-gradient(circle at 79% 87%, rgba(217,119,87,0.14) 0%, transparent 48%),
+    radial-gradient(circle at 18% 18%, rgba(255,248,240,0.035) 0%, transparent 36%);
   pointer-events: none;
-  filter: blur(20px);
+  filter: blur(18px);
 }
 .oc-grid {
   position: absolute; inset: 0;
@@ -404,27 +428,34 @@
 .oc-svg {
   position: relative;
   width: 100%; height: 100%;
-  max-width: 760px;
+  max-width: 800px;
   z-index: 1;
 }
 
+.oc-wire-base .oc-wire-static {
+  fill: none;
+  stroke-width: 1.05;
+  stroke-linecap: round;
+}
 .oc-wires .oc-wire {
   fill: none;
-  stroke: rgba(255, 248, 240, 0.22);
-  stroke-width: 1.2;
+  stroke-width: 1.35;
   stroke-linecap: round;
   stroke-dasharray: 1200;
   stroke-dashoffset: 1200;
-  animation: oc-wire-draw 4s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(249,115,22,0.16));
+  animation: oc-wire-draw 3s ease-in-out infinite;
 }
 @keyframes oc-wire-draw {
   0%   { stroke-dashoffset: 1200; opacity: 0; }
-  18%  { stroke-dashoffset: 0; opacity: 0.55; }
-  72%  { stroke-dashoffset: 0; opacity: 0.55; }
+  14%  { stroke-dashoffset: 0; opacity: 0.72; }
+  70%  { stroke-dashoffset: 0; opacity: 0.58; }
   100% { stroke-dashoffset: -1200; opacity: 0; }
 }
 .oc-stage[data-step="3"] .oc-wires .oc-wire,
-.oc-stage[data-step="4"] .oc-wires .oc-wire { stroke: rgba(251, 146, 60, 0.6); }
+.oc-stage[data-step="4"] .oc-wires .oc-wire {
+  filter: drop-shadow(0 0 9px rgba(249,115,22,0.28));
+}
 
 .oc-wlabel-bg {
   fill: rgba(15, 14, 12, 0.94);
@@ -438,65 +469,41 @@
   font-size: 10px;
   letter-spacing: 0.02em;
 }
-.oc-node-label {
-  fill: rgba(255, 248, 240, 0.7);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-
 .oc-hub-ring {
   fill: none;
-  stroke: rgba(249, 115, 22, 0.4);
+  stroke: rgba(249, 115, 22, 0.58);
   stroke-width: 1;
 }
 .oc-hub-disc {
   fill: #FBFAF6;
-  filter: drop-shadow(0 0 24px rgba(249,115,22,0.4));
+  stroke: rgba(255, 248, 240, 0.65);
+  stroke-width: 1;
+  filter:
+    drop-shadow(0 0 18px rgba(249,115,22,0.55))
+    drop-shadow(0 8px 24px rgba(0,0,0,0.42));
+}
+.oc-hub-mark-bracket {
+  stroke: #111111;
+}
+.oc-hub-mark-accent {
+  fill: var(--accent);
+}
+.oc-hub-mark-dot {
+  fill: #111111;
 }
 
 .oc-pulses .oc-pulse-ring {
   fill: none;
-  stroke: rgba(249, 115, 22, 0.5);
+  stroke: rgba(249, 115, 22, 0.62);
   stroke-width: 1.2;
   transform-origin: 420px 400px;
-  animation: oc-pulse 4.5s ease-out infinite;
+  animation: oc-pulse 3.15s ease-out infinite;
 }
 @keyframes oc-pulse {
-  0%   { transform: scale(0.5); opacity: 0.7; }
-  80%  { transform: scale(2.4); opacity: 0; }
-  100% { transform: scale(2.4); opacity: 0; }
+  0%   { transform: scale(0.46); opacity: 0.74; }
+  78%  { transform: scale(2.55); opacity: 0; }
+  100% { transform: scale(2.55); opacity: 0; }
 }
-
-.oc-node { animation: oc-float 5s ease-in-out infinite alternate; }
-@keyframes oc-float {
-  from { transform: translate(0, 0); }
-  to   { transform: translate(0, -8px); }
-}
-.oc-bubble {
-  fill: #FBFAF6;
-  stroke: rgba(20, 16, 8, 0.12);
-  stroke-width: 1;
-  filter: drop-shadow(0 6px 18px rgba(0,0,0,0.55));
-}
-.oc-bubble-inner {
-  fill: none;
-  stroke: rgba(20, 16, 8, 0.06);
-  stroke-width: 1;
-}
-.oc-node-inner .oc-bubble { fill: #F4F1EB; }
-.oc-halo {
-  fill: rgba(249, 115, 22, 0.15);
-  opacity: 0;
-  transition: opacity 400ms ease;
-}
-.oc-stage[data-step="3"] .oc-halo,
-.oc-stage[data-step="4"] .oc-halo { opacity: 1; animation: oc-halo-pulse 3s ease-in-out infinite alternate; }
-@keyframes oc-halo-pulse {
-  from { opacity: 0.6; }
-  to   { opacity: 1; }
-}
-.oc-mark { color: var(--ink); }
 
 .oc-caption {
   position: absolute;
