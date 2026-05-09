@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Harnex — Connect every API to your agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="styles/tokens.css"/>
+<style>
+  html, body, #root { height: 100%; }
+  body { overflow: hidden; }
+</style>
+<script>
+  // Pre-paint theme apply to avoid FOUC.
+  (function(){
+    try {
+      var raw = document.documentElement.getAttribute("data-tweaks") || "";
+    } catch(e) {}
+  })();
+</script>
+</head>
+<body>
+<div class="bg-atmosphere" aria-hidden="true"></div>
+<div class="bg-grid" aria-hidden="true"></div>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="components/icons.jsx"></script>
+<script type="text/babel" src="components/logos.jsx"></script>
+<script type="text/babel" src="components/data.jsx"></script>
+<script type="text/babel" src="components/marketing.jsx"></script>
+<script type="text/babel" src="components/console-shell.jsx"></script>
+<script type="text/babel" src="components/console-connections.jsx"></script>
+<script type="text/babel" src="components/console-pages.jsx"></script>
+<script type="text/babel" src="components/console-styleguide.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "view": "console",
+  "accent": "#F97316",
+  "theme": "light",
+  "atmosphere": true
+}/*EDITMODE-END*/;
+
+const accentSwatches = [
+  { v: "#F97316", n: "Orange" },
+  { v: "#EA580C", n: "Burnt" },
+  { v: "#FF6A1F", n: "Vivid" },
+  { v: "#D97757", n: "Clay" },
+];
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [page, setPage] = React.useState("dashboard");
+  const [openConn, setOpenConn] = React.useState(null);
+
+  React.useEffect(() => {
+    document.documentElement.style.setProperty("--accent", tweaks.accent);
+  }, [tweaks.accent]);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", tweaks.theme || "light");
+  }, [tweaks.theme]);
+
+  React.useEffect(() => {
+    const atm = document.querySelector(".bg-atmosphere");
+    const grid = document.querySelector(".bg-grid");
+    if (atm) atm.style.display = tweaks.atmosphere ? "" : "none";
+    if (grid) grid.style.display = tweaks.atmosphere ? "" : "none";
+  }, [tweaks.atmosphere]);
+
+  const inMarketing = tweaks.view === "marketing";
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* View toggle */}
+      <div style={{ position: "fixed", top: 12, right: 12, zIndex: 100, display: "flex", gap: 4, padding: 3, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "var(--shadow-md)" }}>
+        <button onClick={() => setTweak("view", "marketing")} style={{ padding: "6px 12px", borderRadius: 5, border: "none", background: inMarketing ? "var(--ink)" : "transparent", color: inMarketing ? "#fff" : "var(--slate)", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>Marketing site</button>
+        <button onClick={() => setTweak("view", "console")} style={{ padding: "6px 12px", borderRadius: 5, border: "none", background: !inMarketing ? "var(--ink)" : "transparent", color: !inMarketing ? "#fff" : "var(--slate)", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>Console</button>
+      </div>
+
+      <div style={{ flex: 1, overflow: "hidden" }}>
+        {inMarketing ? (
+          <Marketing onEnterConsole={() => setTweak("view", "console")}/>
+        ) : (
+          <ConsoleShell
+            page={page}
+            setPage={setPage}
+            openConn={openConn}
+            setOpenConn={setOpenConn}
+            onExitConsole={() => setTweak("view", "marketing")}
+            density="compact"
+          />
+        )}
+      </div>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="View">
+          <TweakRadio value={tweaks.view} onChange={v => setTweak("view", v)} options={[{ value: "marketing", label: "Marketing" }, { value: "console", label: "Console" }]}/>
+        </TweakSection>
+        <TweakSection title="Accent color">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
+            {accentSwatches.map(s => (
+              <button key={s.v} onClick={() => setTweak("accent", s.v)} title={s.n} style={{ height: 32, borderRadius: 6, background: s.v, border: tweaks.accent === s.v ? "2px solid var(--ink)" : "1px solid var(--border)", cursor: "pointer" }}/>
+            ))}
+          </div>
+        </TweakSection>
+        <TweakSection title="Theme">
+          <TweakRadio value={tweaks.theme} onChange={v => setTweak("theme", v)} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]}/>
+        </TweakSection>
+        <TweakSection title="Atmosphere">
+          <TweakToggle checked={!!tweaks.atmosphere} onChange={v => setTweak("atmosphere", v)} label="Fading background glow"/>
+        </TweakSection>
+        {!inMarketing && (
+          <TweakSection title="Console page">
+            <TweakSelect value={page} onChange={setPage} options={[
+              { value: "dashboard", label: "Dashboard" },
+              { value: "connections", label: "Connections" },
+              { value: "new-connection", label: "New connection" },
+              { value: "connection-detail", label: "Connection detail" },
+              { value: "search", label: "Search playground" },
+              { value: "api-keys", label: "API keys" },
+              { value: "executions", label: "Executions" },
+              { value: "usage", label: "Usage" },
+              { value: "style-guide", label: "Style guide" },
+              { value: "logos", label: "Logo marks" },
+            ]}/>
+          </TweakSection>
+        )}
+      </TweaksPanel>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

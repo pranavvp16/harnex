@@ -153,6 +153,47 @@ export interface UsageCurrent {
   monthly_execution_quota: number;
 }
 
+export type TenantPlan = "free" | "starter" | "pro" | "enterprise";
+export type TenantRole = "owner" | "admin" | "developer" | "viewer";
+
+export interface Tenant {
+  id: string;
+  slug: string;
+  display_name: string;
+  plan: TenantPlan;
+  created_at: string;
+}
+
+export interface TenantMembership {
+  id: string;
+  tenant_id: string;
+  email: string | null;
+  role: TenantRole;
+  tenant: Tenant;
+}
+
+export interface MeResponse {
+  user: { id: string; email: string | null; full_name: string | null };
+  memberships: TenantMembership[];
+  current_tenant_id: string | null;
+}
+
+export interface CreateTenantInput {
+  display_name: string;
+  slug?: string | null;
+  team_size?: string | null;
+  profile: {
+    full_name: string;
+    handle?: string | null;
+    email?: string | null;
+  };
+}
+
+export interface SlugCheckResult {
+  slug: string;
+  available: boolean;
+}
+
 export interface SearchHit {
   operation_id: string;
   connection_id: string;
@@ -220,6 +261,9 @@ export interface HarnexClient {
     connector_filter?: string | null;
   }): Promise<SearchResponse>;
   executeOperation(input: ExecuteRequestInput): Promise<ExecuteResponse>;
+  getMe(): Promise<MeResponse>;
+  createTenant(input: CreateTenantInput): Promise<Tenant>;
+  checkTenantSlug(slug: string): Promise<SlugCheckResult>;
 }
 
 export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
@@ -291,5 +335,10 @@ export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
       }),
     executeOperation: (input) =>
       call<ExecuteResponse>("/v1/execute", { method: "POST", json: input }),
+    getMe: () => call<MeResponse>("/v1/me"),
+    createTenant: (input) =>
+      call<Tenant>("/v1/tenants", { method: "POST", json: input }),
+    checkTenantSlug: (slug) =>
+      call<SlugCheckResult>(`/v1/tenants/check-slug?slug=${encodeURIComponent(slug)}`),
   };
 }
