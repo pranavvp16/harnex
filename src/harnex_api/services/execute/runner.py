@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -37,6 +38,21 @@ from harnex_api.services.execute.operation import (
     find_operation,
 )
 from harnex_api.services.execute.sandbox import generate_fetch_script, get_sandbox_runner
+
+_SENSITIVE_HEADER_KEYS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "www-authenticate",
+        "proxy-authorization",
+    }
+)
+
+
+def sanitize_headers(headers: Mapping[str, str]) -> dict[str, str]:
+    """Strip sensitive outbound / inbound headers before persisting execution summaries."""
+    return {k: v for k, v in headers.items() if k.lower() not in _SENSITIVE_HEADER_KEYS}
 
 
 class ConnectionNotReadyError(RuntimeError):
@@ -133,13 +149,13 @@ def _record_execution(
         method=outcome.method or (request.method if request else None),
         path=outcome.path or (request.path if request else None),
         request_summary={
-            "headers": dict(request.headers if request else {}),
+            "headers": sanitize_headers(dict(request.headers if request else {})),
             "query": dict(request.query if request else {}),
             "has_body": bool(request and request.body is not None),
         },
         response_summary={
             "http_status": outcome.http_status,
-            "headers": outcome.response_headers,
+            "headers": sanitize_headers(dict(outcome.response_headers)),
             "body": outcome.response_body,
         },
         error_kind=outcome.error_kind,
@@ -337,7 +353,7 @@ async def execute_structured(
     outcome = ExecuteOutcome(
         status=status_kind,
         http_status=resp.status_code,
-        response_headers={k: v for k, v in resp.headers.items() if k.lower() != "set-cookie"},
+        response_headers=dict(resp.headers.items()),
         response_body=body,
         error_kind=None if resp.is_success else f"http_{resp.status_code}",
         error_message=None if resp.is_success else f"upstream returned {resp.status_code}",
@@ -482,4 +498,5 @@ __all__ = [
     "ExecuteOutcome",
     "execute_code",
     "execute_structured",
+    "sanitize_headers",
 ]

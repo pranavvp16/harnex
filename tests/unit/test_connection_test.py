@@ -42,12 +42,21 @@ def test_resolve_test_endpoint_falls_back_for_unknown() -> None:
 
 
 def test_resolve_base_url_prefers_explicit() -> None:
-    p = _input(base_url="https://example.com/api/")
+    p = _input(mode=ConnectionMode.bare_url, base_url="https://example.com/api/")
     assert _resolve_base_url(p) == "https://example.com/api"
 
 
 def test_resolve_base_url_falls_back_to_connector_default() -> None:
     p = _input(connector_key="github", base_url=None)
+    assert _resolve_base_url(p) == "https://api.github.com"
+
+
+def test_resolve_base_url_builtin_ignores_custom_base_url() -> None:
+    p = _input(
+        mode=ConnectionMode.builtin,
+        connector_key="github",
+        base_url="http://127.0.0.1:8080/evil",
+    )
     assert _resolve_base_url(p) == "https://api.github.com"
 
 
@@ -77,10 +86,20 @@ async def test_run_reports_missing_base_url() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_blocks_ssrf_loopback() -> None:
+    p = _input(mode=ConnectionMode.bare_url, connector_key=None, base_url="http://127.0.0.1:8080/")
+    result = await run_test(p)
+    assert result.ok is False
+    assert result.error_kind == "ssrf_blocked"
+@pytest.mark.asyncio
 async def test_run_handles_network_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import httpx
+
+    async def _allow_public_url(url: str) -> tuple[bool, str]:
+        del url
+        return True, ""
 
     class _FailingClient:
         def __init__(self, *args: object, **kwargs: object) -> None:
@@ -96,8 +115,9 @@ async def test_run_handles_network_failure(
             del kwargs
             raise httpx.ConnectError("dns failed")
 
+    monkeypatch.setattr(ct, "_guard_public_http_url", _allow_public_url)
     monkeypatch.setattr(ct.httpx, "AsyncClient", _FailingClient)
-    p = _input(base_url="https://example.invalid")
+    p = _input(mode=ConnectionMode.bare_url, connector_key=None, base_url="https://example.invalid")
     result = await run_test(p)
     assert result.ok is False
     assert result.error_kind == "network_error"
