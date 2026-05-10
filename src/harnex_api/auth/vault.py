@@ -184,12 +184,28 @@ def get_vault() -> SecretsVault:
     return _vault
 
 
+def _validate_id_segment(value: str, *, label: str) -> str:
+    """Reject characters that could escape the per-tenant path namespace.
+
+    Vault paths are constructed by string interpolation. Allowing path
+    separators or control characters in either id would let a caller
+    cross into a sibling tenant's secrets via path traversal.
+    """
+    if not value or any(c in value for c in "/\\\t\n\r ") or ".." in value:
+        raise ValueError(f"invalid vault path segment for {label}: {value!r}")
+    return value
+
+
 def connection_secret_path(tenant_id: str, connection_id: str) -> str:
-    return f"tenants/{tenant_id}/connections/{connection_id}"
+    t = _validate_id_segment(tenant_id, label="tenant_id")
+    c = _validate_id_segment(connection_id, label="connection_id")
+    return f"tenants/{t}/connections/{c}"
 
 
 def connector_token_path(tenant_id: str, connector_key: str) -> str:
-    return f"tenants/{tenant_id}/connectors/{connector_key}/tokens"
+    t = _validate_id_segment(tenant_id, label="tenant_id")
+    k = _validate_id_segment(connector_key, label="connector_key")
+    return f"tenants/{t}/connectors/{k}/tokens"
 
 
 async def load_connection_credentials(

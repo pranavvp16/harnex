@@ -18,8 +18,16 @@ router = APIRouter(prefix="/v1/tenants", tags=["tenants"])
 @router.get("/check-slug", response_model=SlugCheck)
 async def check_slug(
     slug: str = Query(min_length=2, max_length=64, pattern=r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"),
+    _user: AuthenticatedUser = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> SlugCheck:
+    """Probe a single slug for availability.
+
+    Auth-required so the slug namespace can't be enumerated anonymously —
+    callers will already be JWT-authenticated by the time the SPA's
+    onboarding form runs (sign-up/log-in is a precondition for hitting
+    this endpoint via the UI).
+    """
     available = await svc.slug_available(db, slug)
     return SlugCheck(slug=slug, available=available)
 

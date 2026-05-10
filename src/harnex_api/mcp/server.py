@@ -315,7 +315,16 @@ def build_streamable_http_app() -> Any:
             receive_replay = _receive_replay(body)
             await inner(scope, receive_replay, send)
         finally:
-            _caller_context.reset(ctx_token)
+            # `reset` restores the previous (default=None) value in this
+            # context; the explicit `set(None)` is belt-and-suspenders so
+            # that even if a child task captured this Context and survives
+            # past the reset (a bug we shouldn't be able to hit), it sees
+            # `None` and `_require_caller()` raises rather than acting on
+            # stale identity.
+            try:
+                _caller_context.reset(ctx_token)
+            finally:
+                _caller_context.set(None)
 
     return app
 

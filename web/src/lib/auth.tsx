@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { User, UserManager, WebStorageStateStore } from "oidc-client-ts";
 import {
   type ReactNode,
@@ -6,6 +7,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -156,6 +158,7 @@ function userFromTokenResponse(resp: KeycloakTokenResponse): User {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  const queryClient = useQueryClient();
   const manager = useMemo(buildUserManager, []);
   const [user, setUser] = useState<User | null>(null);
   // env.devTenantId means a dev-mode build (no Keycloak). Real builds start
@@ -164,22 +167,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [activeTenantId, setActiveTenantIdState] = useState<string | null>(
     () => env.devTenantId ?? null,
   );
+  // Track the previously-active tenant so we can purge cached responses on
+  // any switch — server-side scoping is correct, but stale cache from a
+  // prior tenant must not flash to the new one.
+  const previousTenantId = useRef<string | null>(activeTenantId);
   // Always start in "loading" (real Keycloak path). Dev-mode build with the
   // build-time devTenantId is the only no-auth bypass.
   const [status, setStatus] = useState<AuthState["status"]>(() =>
     !manager && env.devTenantId ? "authenticated" : "loading",
   );
 
-  const setActiveTenantId = useCallback((id: string | null) => {
-    setActiveTenantIdState(id);
-    if (typeof window === "undefined") return;
-    try {
-      if (id) window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, id);
-      else window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
-    } catch {
-      // localStorage can fail in private mode — non-fatal, in-memory state still works.
-    }
-  }, []);
+  const setActiveTenantId = useCallback(
+    (id: string | null) => {
+      // If the tenant actually changed, drop every cached query — none of the
+      // previous tenant's data is valid for the new one.
+      if (previousTenantId.current !== id) {
+        queryClient.clear();
+        previousTenantId.current = id;
+      }
+      setActiveTenantIdState(id);
+      if (typeof window === "undefined") return;
+      try {
+        if (id) window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, id);
+        else window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
+      } catch {
+        // localStorage can fail in private mode — non-fatal, in-memory state still works.
+      }
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
     if (!manager) {
@@ -333,6 +349,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Keycloak redirect fails (misconfigured post-logout URL, network, etc).
     setActiveTenantId(null);
     setUser(null);
+    // Belt-and-suspenders: setActiveTenantId(null) above already clears the
+    // query cache when a tenant was active, but if logout happens from an
+    // anonymous-with-cached-data state we still want a clean slate.
+    queryClient.clear();
     const signedOutUrl =
       typeof window !== "undefined"
         ? `${window.location.origin}/signed-out`
@@ -360,7 +380,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         window.location.assign("/signed-out");
       }
     }
-  }, [manager, setActiveTenantId]);
+  }, [manager, queryClient, setActiveTenantId]);
 
   const getAccessToken = useCallback(async () => {
     if (!manager) return null;
