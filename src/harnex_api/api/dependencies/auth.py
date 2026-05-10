@@ -234,11 +234,11 @@ async def get_tenant_context(
     1. `Authorization: Bearer <jwt>` → verify against Keycloak JWKS, look up
        a `TenantMembership` for the `sub`. `X-Harnex-Tenant: <uuid>` picks
        a workspace when the user belongs to several.
-    2. (local-only, no Authorization header) `X-Harnex-Dev-Tenant: <uuid>`
-       → tenant id taken verbatim, subject="dev". Keeps integration tests
-       and the local dev-mode SPA working without a real Keycloak. The gate
-       is `env == "local"` only (not "dev"/"staging"/"prod") so a misconfigured
-       deployment cannot accidentally turn off auth.
+    2. (local / compose dev only, no Authorization header)
+       `X-Harnex-Dev-Tenant: <uuid>` → tenant id taken verbatim, subject="dev".
+       Keeps integration tests, the local SPA, and `docker compose` (default
+       `HARNEX_ENV=dev`) working without a real Keycloak. The gate is
+       `HARNEX_ENV` ∈ {`local`, `dev`}; staging/production ignore the header.
     3. Otherwise → 401.
     """
     settings = get_settings()
@@ -257,17 +257,17 @@ async def get_tenant_context(
         )
         return TenantContext(tenant_id=tenant_id, subject=user.sub)
 
-    if settings.env == "local" and x_harnex_dev_tenant:
+    if settings.env in ("local", "dev") and x_harnex_dev_tenant:
         return TenantContext(
             tenant_id=_parse_uuid(x_harnex_dev_tenant, header_name="X-Harnex-Dev-Tenant"),
             subject="dev",
         )
-    if x_harnex_dev_tenant and settings.env != "local":
+    if x_harnex_dev_tenant and settings.env not in ("local", "dev"):
         # Make the failure mode explicit so a confused deploy notices fast.
         log.warning(
             "dev_tenant_header_rejected",
             env=settings.env,
-            reason="X-Harnex-Dev-Tenant only honored when HARNEX_ENV=local",
+            reason="X-Harnex-Dev-Tenant only honored when HARNEX_ENV is local or dev",
         )
 
     log.warning(
