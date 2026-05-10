@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from harnex_api.config import get_settings
 from harnex_api.db.models import Tenant, TenantMembership, TenantPlan, TenantRole
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -59,16 +60,27 @@ async def create_tenant_with_owner(
 
     Slug resolution: requested_slug wins if available; otherwise we slugify
     the display name and add a short suffix on collision.
+
+    `infisical_project_id` is populated from the configured shared project
+    (`INFISICAL_PROJECT_ID`) so the field reflects where this tenant's
+    secrets actually live. Vault paths still segment per-tenant
+    (`tenants/{id}/connections/{conn_id}`); a future change can swap to a
+    real per-tenant Infisical project without touching call sites.
     """
     base = (requested_slug or slugify(display_name)).lower()
     slug = await _next_slug_candidate(session, base)
+    project_id = get_settings().infisical_project_id or None
 
-    tenant = Tenant(
-        slug=slug,
-        display_name=display_name,
-        plan=TenantPlan.free,
-        is_active=True,
-    )
+    def _new(slug_value: str) -> Tenant:
+        return Tenant(
+            slug=slug_value,
+            display_name=display_name,
+            plan=TenantPlan.free,
+            is_active=True,
+            infisical_project_id=project_id,
+        )
+
+    tenant = _new(slug)
     session.add(tenant)
     try:
         await session.flush()
@@ -76,12 +88,7 @@ async def create_tenant_with_owner(
         # Race on slug uniqueness — retry once with a fresh suffix.
         await session.rollback()
         slug = await _next_slug_candidate(session, base)
-        tenant = Tenant(
-            slug=slug,
-            display_name=display_name,
-            plan=TenantPlan.free,
-            is_active=True,
-        )
+        tenant = _new(slug)
         session.add(tenant)
         await session.flush()
 
