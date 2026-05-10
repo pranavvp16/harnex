@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
@@ -184,12 +185,32 @@ def get_vault() -> SecretsVault:
     return _vault
 
 
+# UUIDs, connector slugs, and Infisical path segments we construct: no
+# URL-encoded separators (%2f), no whitespace/control, no traversal.
+_SAFE_VAULT_SEGMENT = re.compile(r"^[A-Za-z0-9_-]+\Z")
+
+
+def _validate_id_segment(value: str, *, label: str) -> str:
+    """Reject values that could escape the per-tenant path namespace.
+
+    Vault paths are built by string interpolation. A denylist is easy to
+    bypass (e.g. ``%2f``); allowlist segments to alphanumeric, hyphen, underscore.
+    """
+    if not value or not _SAFE_VAULT_SEGMENT.fullmatch(value):
+        raise ValueError(f"invalid vault path segment for {label}: {value!r}")
+    return value
+
+
 def connection_secret_path(tenant_id: str, connection_id: str) -> str:
-    return f"tenants/{tenant_id}/connections/{connection_id}"
+    t = _validate_id_segment(tenant_id, label="tenant_id")
+    c = _validate_id_segment(connection_id, label="connection_id")
+    return f"tenants/{t}/connections/{c}"
 
 
 def connector_token_path(tenant_id: str, connector_key: str) -> str:
-    return f"tenants/{tenant_id}/connectors/{connector_key}/tokens"
+    t = _validate_id_segment(tenant_id, label="tenant_id")
+    k = _validate_id_segment(connector_key, label="connector_key")
+    return f"tenants/{t}/connectors/{k}/tokens"
 
 
 async def load_connection_credentials(
