@@ -4,7 +4,7 @@
 services:
   postgres:
     restart: unless-stopped
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-harnex}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -153,8 +153,24 @@ services:
       INFISICAL_CLIENT_ID: ${INFISICAL_CLIENT_ID:-}
       INFISICAL_CLIENT_SECRET: ${INFISICAL_CLIENT_SECRET:-}
       HARNEX_REDIS_URL: ${HARNEX_REDIS_URL:-redis://redis:6379/0}
-      HARNEX_USE_FAKE_EMBEDDINGS: ${HARNEX_USE_FAKE_EMBEDDINGS:-1}
-      HARNEX_USE_FAKE_VECTOR_SEARCH: ${HARNEX_USE_FAKE_VECTOR_SEARCH:-1}
+      # OpenAI embeddings — set HARNEX_OPENAI_API_KEY in .env. Empty key falls back
+      # to the deterministic fake provider (dev/test only — search relevance is poor).
+      HARNEX_OPENAI_API_KEY: ${HARNEX_OPENAI_API_KEY:-}
+      HARNEX_OPENAI_EMBEDDING_MODEL: ${HARNEX_OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
+      HARNEX_OPENAI_EMBEDDING_DIM: ${HARNEX_OPENAI_EMBEDDING_DIM:-1536}
+      HARNEX_USE_FAKE_EMBEDDINGS: ${HARNEX_USE_FAKE_EMBEDDINGS:-0}
+      # Blaxel sandbox (code-mode execute path). Empty BLAXEL_API_KEY disables
+      # code-mode at runtime — /v1/execute with mode="code" will surface a clear
+      # error instead of crashing.
+      BLAXEL_API_KEY: ${BLAXEL_API_KEY:-}
+      BLAXEL_BASE_URL: ${BLAXEL_BASE_URL:-}
+      BLAXEL_WORKSPACE_URL: ${BLAXEL_WORKSPACE_URL:-}
+      BLAXEL_WORKSPACE: ${BLAXEL_WORKSPACE:-}
+      BLAXEL_SANDBOX_NAME: ${BLAXEL_SANDBOX_NAME:-harnex-execute}
+      BLAXEL_SANDBOX_IMAGE: ${BLAXEL_SANDBOX_IMAGE:-blaxel/node:latest}
+      BLAXEL_SANDBOX_REGION: ${BLAXEL_SANDBOX_REGION:-us-pdx-1}
+      BLAXEL_SANDBOX_MEMORY_MB: ${BLAXEL_SANDBOX_MEMORY_MB:-2048}
+      BLAXEL_DEFAULT_TIMEOUT_SECONDS: ${BLAXEL_DEFAULT_TIMEOUT_SECONDS:-30}
     ports:
       - "8000:8000"
     depends_on:

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import socket
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -25,6 +27,8 @@ from harnex_api.connectors.registry import register_builtins, registry
 from harnex_api.db.models import AuthFlow, ConnectionMode
 
 TEST_TIMEOUT_SECONDS = 8.0
+METADATA_BODY_MAX_BYTES = 256 * 1024
+METADATA_VALUE_MAX = 200
 
 
 def _response_duration_ms(resp: httpx.Response) -> int:
@@ -123,7 +127,9 @@ async def _guard_public_http_url(url: str) -> tuple[bool, str, list[str] | None]
     return True, "", ips
 
 
-def _rewrite_http_base_with_ip(base_url: str, chosen_ip: str, original_hostname: str) -> tuple[str, dict[str, str]]:
+def _rewrite_http_base_with_ip(
+    base_url: str, chosen_ip: str, original_hostname: str
+) -> tuple[str, dict[str, str]]:
     """Rewrite http origin to a literal IP netloc; preserve name-based vhosts via Host."""
     p = urlparse(base_url)
     port = p.port or 80
@@ -152,6 +158,7 @@ class ConnectionTestResult:
     error_kind: str | None
     message: str
     duration_ms: int
+    metadata: dict[str, str] = field(default_factory=dict)
 
 
 def _resolve_test_endpoint(connector_key: str | None) -> ConnectorTestEndpoint:
@@ -179,7 +186,9 @@ def _resolve_base_url(payload: ConnectionTestInput) -> str | None:
     if payload.connector_key:
         register_builtins()
         if registry.has(payload.connector_key):
-            connector_default = getattr(registry.get(payload.connector_key), "default_base_url", None)
+            connector_default = getattr(
+                registry.get(payload.connector_key), "default_base_url", None
+            )
             if connector_default:
                 return str(connector_default).rstrip("/")
     return None
@@ -202,6 +211,182 @@ def _classify(status_code: int) -> tuple[bool, str | None, str]:
     if 500 <= status_code < 600:
         return False, "upstream_error", f"HTTP {status_code} — upstream error"
     return False, "http_error", f"HTTP {status_code}"
+
+
+def _cap_text(val: Any) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    return s[:METADATA_VALUE_MAX]
+
+
+def _instance_label_from_base(display_base_url: str) -> str | None:
+    """Human-facing host (with non-default port) from the wizard's canonical base URL."""
+    url = display_base_url.strip()
+    if not url:
+        return None
+    if "://" not in url:
+        url = f"https://{url}"
+    p = urlparse(url.rstrip("/"))
+    if not p.hostname:
+        return None
+    host = str(p.hostname)
+    port = p.port
+    scheme = (p.scheme or "https").lower()
+    default = 443 if scheme == "https" else 80 if scheme == "http" else None
+    if port and default is not None and port != default:
+        return f"{host}:{port}"
+    return host
+
+
+def _try_parse_json_object(raw_body: bytes) -> dict[str, Any] | None:
+    chunk = raw_body[:METADATA_BODY_MAX_BYTES]
+    if not chunk or not chunk.strip():
+        return None
+    try:
+        text = chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _metadata_github(data: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if u := _cap_text(data.get("login")):
+        out["Username"] = u
+    if n := _cap_text(data.get("name")):
+        out["Name"] = n
+    return out
+
+
+def _metadata_gitlab(data: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if u := _cap_text(data.get("username")):
+        out["Username"] = u
+    if n := _cap_text(data.get("name")):
+        out["Name"] = n
+    return out
+
+
+def _metadata_jira(data: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if d := _cap_text(data.get("displayName")):
+        out["Display name"] = d
+    if e := _cap_text(data.get("emailAddress")):
+        out["Email"] = e
+    return out
+
+
+def _metadata_jenkins(data: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    fn = _cap_text(data.get("fullName"))
+    jid = _cap_text(data.get("id"))
+    if fn:
+        out["User"] = fn
+    elif jid:
+        out["User"] = jid
+    return out
+
+
+def _metadata_slack(data: dict[str, Any]) -> dict[str, str]:
+    if data.get("ok") is not True:
+        return {}
+    out: dict[str, str] = {}
+    if t := _cap_text(data.get("team")):
+        out["Team"] = t
+    if u := _cap_text(data.get("user")):
+        out["User"] = u
+    return out
+
+
+def _metadata_linear(data: dict[str, Any]) -> dict[str, str]:
+    viewer = data.get("data")
+    if not isinstance(viewer, dict):
+        return {}
+    v = viewer.get("viewer")
+    if not isinstance(v, dict):
+        return {}
+    out: dict[str, str] = {}
+    if i := _cap_text(v.get("id")):
+        out["Viewer ID"] = i
+    if n := _cap_text(v.get("name")):
+        out["Name"] = n
+    return out
+
+
+def _metadata_kubernetes(data: dict[str, Any]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    vers = data.get("versions")
+    if isinstance(vers, list) and vers:
+        parts = [p for x in vers[:15] if (p := _cap_text(x))]
+        if parts:
+            joined = ", ".join(parts)
+            out["API versions"] = joined[:METADATA_VALUE_MAX]
+    if not out and (k := _cap_text(data.get("kind"))):
+        out["Kind"] = k
+    return out
+
+
+def _connector_body_metadata(connector_key: str, data: dict[str, Any]) -> dict[str, str]:
+    if connector_key == "github":
+        return _metadata_github(data)
+    if connector_key == "gitlab":
+        return _metadata_gitlab(data)
+    if connector_key == "jira":
+        return _metadata_jira(data)
+    if connector_key == "jenkins":
+        return _metadata_jenkins(data)
+    if connector_key == "slack":
+        return _metadata_slack(data)
+    if connector_key == "linear":
+        return _metadata_linear(data)
+    if connector_key == "kubernetes":
+        return _metadata_kubernetes(data)
+    return {}
+
+
+def extract_probe_metadata(
+    *,
+    probe_ok: bool,
+    connector_key: str | None,
+    display_base_url: str,
+    response_headers: Mapping[str, str],
+    raw_body: bytes,
+) -> dict[str, str]:
+    """Build non-secret key/value metadata for a successful probe (wizard display)."""
+    if not probe_ok:
+        return {}
+    hdr = {str(k).lower(): str(v) for k, v in response_headers.items()}
+    meta: dict[str, str] = {}
+    if inst := _instance_label_from_base(display_base_url):
+        meta["Instance"] = inst
+
+    ctype: str | None = None
+    raw_ct = hdr.get("content-type")
+    if raw_ct:
+        ctype = _cap_text(raw_ct.split(";")[0].strip())
+
+    if connector_key is None:
+        if ctype:
+            meta["Content-Type"] = ctype
+        return meta
+
+    body = _try_parse_json_object(raw_body)
+    if body is None:
+        if ctype:
+            meta["Content-Type"] = ctype
+        return meta
+
+    meta.update(_connector_body_metadata(connector_key, body))
+    if ctype and "Content-Type" not in meta:
+        meta["Content-Type"] = ctype
+    return meta
 
 
 async def test_connection_config(payload: ConnectionTestInput) -> ConnectionTestResult:
@@ -236,11 +421,7 @@ async def test_connection_config(payload: ConnectionTestInput) -> ConnectionTest
     parsed_base = urlparse(base_url)
     effective_base = base_url
     pin_headers: dict[str, str] = {}
-    if (
-        parsed_base.scheme == "http"
-        and parsed_base.hostname
-        and pin_ips
-    ):
+    if parsed_base.scheme == "http" and parsed_base.hostname and pin_ips:
         try:
             ipaddress.ip_address(parsed_base.hostname)
         except ValueError:
@@ -312,6 +493,14 @@ async def test_connection_config(payload: ConnectionTestInput) -> ConnectionTest
 
     ok, kind, msg = _classify(resp.status_code)
     display_target = f"{base_url.rstrip('/')}{endpoint.path}"
+    headers_lc = {str(k).lower(): str(v) for k, v in resp.headers.items()}
+    meta = extract_probe_metadata(
+        probe_ok=ok,
+        connector_key=payload.connector_key,
+        display_base_url=base_url.rstrip("/"),
+        response_headers=headers_lc,
+        raw_body=resp.content,
+    )
     return ConnectionTestResult(
         ok=ok,
         http_status=resp.status_code,
@@ -320,11 +509,13 @@ async def test_connection_config(payload: ConnectionTestInput) -> ConnectionTest
         error_kind=kind,
         message=msg,
         duration_ms=_response_duration_ms(resp),
+        metadata=meta,
     )
 
 
 __all__ = [
     "ConnectionTestInput",
     "ConnectionTestResult",
+    "extract_probe_metadata",
     "test_connection_config",
 ]

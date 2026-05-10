@@ -55,7 +55,7 @@ export function ConnectionWizard() {
         credentials: state.payload.credentials,
       });
     },
-    onSuccess: (result) => setTestResult(result),
+    onSuccess: (result) => setTestResult(normalizeProbeResult(result)),
     onError: () => setTestResult(null),
   });
 
@@ -220,47 +220,82 @@ export function ConnectionWizard() {
         <span>New connection</span>
       </div>
 
-      {/* Stepper */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {/* Stepper — completed / current / upcoming use distinct tokens in both themes */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         {[
           { n: 1, label: "Choose connector" },
           { n: 2, label: "Configure" },
           { n: 3, label: "Review" },
-        ].map((s, i, arr) => (
-          <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span
-                style={{
-                  width: 22,
-                  height: 22,
-                  borderRadius: 999,
-                  background: step >= s.n ? "var(--ink)" : "var(--surface)",
-                  color: step >= s.n ? "#fff" : "var(--muted)",
-                  border: step >= s.n ? "none" : "1px solid var(--border)",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 11,
-                  fontWeight: 500,
-                }}
-              >
-                {step > s.n ? Ic.check : s.n}
-              </span>
-              <span
-                style={{
-                  fontSize: 12.5,
-                  color: step >= s.n ? "var(--ink)" : "var(--muted)",
-                  fontWeight: step === s.n ? 500 : 400,
-                }}
-              >
-                {s.label}
-              </span>
+        ].map((s, i, arr) => {
+          const isComplete = step > s.n;
+          const isCurrent = step === s.n;
+          const isUpcoming = step < s.n;
+
+          const circleStyle: React.CSSProperties = {
+            width: 22,
+            height: 22,
+            borderRadius: 999,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 11,
+            fontWeight: 600,
+            flexShrink: 0,
+            ...(isUpcoming
+              ? {
+                  background: "var(--surface)",
+                  color: "var(--muted)",
+                  border: "1px solid var(--border)",
+                }
+              : isCurrent
+                ? {
+                    background: "var(--surface)",
+                    color: "var(--ink)",
+                    border: "2px solid var(--accent)",
+                    boxShadow: "0 0 0 3px var(--accent-soft)",
+                  }
+                : {
+                    background: "var(--green-soft)",
+                    color: "var(--green)",
+                    border: "1px solid var(--green-border)",
+                  }),
+          };
+
+          return (
+            <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={circleStyle}>
+                  {isComplete ? (
+                    <span style={{ display: "inline-flex", color: "var(--green)" }}>{Ic.check}</span>
+                  ) : (
+                    s.n
+                  )}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: isUpcoming ? "var(--muted)" : "var(--ink)",
+                    fontWeight: isCurrent ? 600 : isComplete ? 500 : 400,
+                  }}
+                >
+                  {s.label}
+                </span>
+              </div>
+              {i < arr.length - 1 && (
+                <span
+                  style={{
+                    flex: 1,
+                    height: 2,
+                    borderRadius: 999,
+                    background: step > s.n ? "var(--green)" : "var(--border)",
+                    maxWidth: 80,
+                    opacity: step > s.n ? 0.55 : 1,
+                  }}
+                />
+              )}
             </div>
-            {i < arr.length - 1 && (
-              <span style={{ flex: 1, height: 1, background: "var(--border)", maxWidth: 80 }} />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {step === 1 && (
@@ -379,18 +414,31 @@ export function ConnectionWizard() {
 
           {testResult && (
             <AlertBox variant={testResult.ok ? "info" : "red"}>
-              <span style={{ display: "inline-flex" }}>
-                {testResult.ok ? Ic.check : Ic.warning}
-              </span>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <strong>
-                  {testResult.ok ? "Connection ok" : "Connection failed"}
-                  {testResult.http_status !== null && ` · HTTP ${testResult.http_status}`}
-                </strong>
-                <span className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                  {testResult.method} {testResult.url}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ display: "inline-flex", flexShrink: 0, paddingTop: 2 }}>
+                  {testResult.ok ? Ic.check : Ic.warning}
                 </span>
-                <span style={{ fontSize: 12 }}>{testResult.message}</span>
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <strong style={{ fontSize: 13 }}>
+                    {testResult.ok ? "Connection ok" : "Connection failed"}
+                    {testResult.http_status !== null && ` · HTTP ${testResult.http_status}`}
+                  </strong>
+                  <span className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                    {testResult.method} {testResult.url}
+                  </span>
+                  <span style={{ fontSize: 12 }}>{testResult.message}</span>
+                  {testResult.ok && (
+                    <ProbeMetadataBlock metadata={testResult.metadata ?? {}} />
+                  )}
+                </div>
               </div>
             </AlertBox>
           )}
@@ -481,12 +529,33 @@ export function ConnectionWizard() {
 
           {testResult && (
             <AlertBox variant={testResult.ok ? "info" : "amber"}>
-              <span style={{ display: "inline-flex" }}>
-                {testResult.ok ? Ic.check : Ic.warning}
-              </span>
-              <div>
-                <strong>{testResult.ok ? "Probe passed" : "Probe warning"}</strong>{" "}
-                — {testResult.message}
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ display: "inline-flex", flexShrink: 0, paddingTop: 2 }}>
+                  {testResult.ok ? Ic.check : Ic.warning}
+                </span>
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ fontSize: 13 }}>
+                    <strong>{testResult.ok ? "Probe passed" : "Probe warning"}</strong>
+                    {" — "}
+                    {testResult.message}
+                  </div>
+                  {testResult.ok && !!testResult.url && (
+                    <span className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                      {testResult.method} {testResult.url}
+                    </span>
+                  )}
+                  {testResult.ok && (
+                    <ProbeMetadataBlock metadata={testResult.metadata ?? {}} />
+                  )}
+                </div>
               </div>
             </AlertBox>
           )}
@@ -527,6 +596,44 @@ export function ConnectionWizard() {
           <div>Form state is missing — please go back and fill in the form.</div>
         </AlertBox>
       )}
+    </div>
+  );
+}
+
+function normalizeProbeResult(result: ConnectionTestResult): ConnectionTestResult {
+  const metadata: Record<string, string> = {};
+  const raw = result.metadata;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw)) {
+      if (v == null || v === "") continue;
+      const s = typeof v === "string" ? v.trim() : String(v).trim();
+      if (s) metadata[k] = s;
+    }
+  }
+  return { ...result, metadata };
+}
+
+function ProbeMetadataBlock({ metadata }: { metadata: Record<string, string> }) {
+  if (Object.keys(metadata).length === 0) return null;
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--border)",
+        marginTop: 4,
+        paddingTop: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink)" }}>
+        Connection details
+      </div>
+      <ReviewGrid>
+        {Object.entries(metadata).map(([key, value]) => (
+          <ReviewRow key={key} k={key} v={value} mono />
+        ))}
+      </ReviewGrid>
     </div>
   );
 }

@@ -1,3 +1,14 @@
+"""Hybrid (semantic + keyword) search over the shared spec catalog.
+
+Chunks live in `operation_chunks` keyed on `connector_specs.id`, not per
+tenant. Tenant scoping happens at query time by joining through
+`connections.spec_id` and filtering on `connections.tenant_id`. The
+keyword half uses a STORED tsvector with weighted setweight() over
+summary/path/description/tags; the semantic half uses pgvector HNSW with
+cosine distance. Results are fused by Reciprocal Rank Fusion (k=60), which
+needs no score normalization between the two ranks.
+"""
+
 from __future__ import annotations
 
 import math
@@ -5,8 +16,18 @@ from dataclasses import dataclass, field
 from threading import RLock
 from typing import Any, Protocol
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
 from harnex_api.config import get_settings
-from harnex_api.services.ingestion.chunker import SpecChunk, chunk_to_search_document
+from harnex_api.db.session import get_sessionmaker
+
+# Reciprocal Rank Fusion constant. 60 is the canonical default from the
+# original Cormack et al. paper — robust under skew, parameter-free.
+_RRF_K = 60
+# Per-channel cap before fusion. Keep larger than top_k so fusion has room
+# to surface chunks that rank well in only one channel.
+_PER_CHANNEL_LIMIT = 50
 
 
 @dataclass(frozen=True)
@@ -23,20 +44,222 @@ class SearchHit:
 
 
 class VectorSearch(Protocol):
-    async def ensure_index(self, tenant_id: str, dim: int) -> None: ...
-    async def upsert(
-        self, tenant_id: str, chunks: list[SpecChunk], embeddings: list[list[float]]
-    ) -> None: ...
-    async def delete_by_connection(self, tenant_id: str, connection_id: str) -> None: ...
-    async def delete_chunks(self, tenant_id: str, chunk_ids: list[str]) -> None: ...
     async def search(
         self,
+        *,
         tenant_id: str,
         embedding: list[float],
-        *,
+        query_text: str,
         top_k: int = 10,
         connector_filter: str | None = None,
     ) -> list[SearchHit]: ...
+
+
+class PgVectorSearch:
+    """Hybrid search over `operation_chunks` with tenant scoping via JOIN."""
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def search(
+        self,
+        *,
+        tenant_id: str,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 10,
+        connector_filter: str | None = None,
+    ) -> list[SearchHit]:
+        async with self._session_factory() as session:
+            return await self._search(
+                session,
+                tenant_id=tenant_id,
+                embedding=embedding,
+                query_text=query_text,
+                top_k=top_k,
+                connector_filter=connector_filter,
+            )
+
+    async def _search(
+        self,
+        session: AsyncSession,
+        *,
+        tenant_id: str,
+        embedding: list[float],
+        query_text: str,
+        top_k: int,
+        connector_filter: str | None,
+    ) -> list[SearchHit]:
+        # When two of the tenant's connections share a spec_id (e.g. two
+        # GitHub orgs on the same SaaS spec), a chunk would otherwise appear
+        # twice. DISTINCT ON pins it to the most-recently-created connection
+        # so each operation surfaces once with a stable connection_id.
+        sql = text(
+            """
+            WITH chunk_connection AS (
+                SELECT DISTINCT ON (oc.id)
+                    oc.id AS chunk_id,
+                    c.id AS connection_id,
+                    c.connector_key,
+                    oc.operation_id,
+                    oc.method,
+                    oc.path,
+                    oc.summary,
+                    oc.embedding,
+                    oc.search_tsv
+                FROM operation_chunks oc
+                JOIN connections c ON c.spec_id = oc.spec_id
+                WHERE c.tenant_id = CAST(:tenant_id AS uuid)
+                    AND (CAST(:connector_filter AS text) IS NULL
+                         OR c.connector_key = :connector_filter)
+                ORDER BY oc.id, c.created_at DESC
+            ),
+            semantic AS (
+                SELECT chunk_id,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:emb AS vector))
+                           AS rank
+                FROM chunk_connection
+                ORDER BY embedding <=> CAST(:emb AS vector)
+                LIMIT :limit
+            ),
+            keyword AS (
+                SELECT cc.chunk_id,
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(cc.search_tsv, q) DESC)
+                           AS rank
+                FROM chunk_connection cc,
+                     websearch_to_tsquery('english', :q) AS q
+                WHERE cc.search_tsv @@ q
+                ORDER BY ts_rank_cd(cc.search_tsv, q) DESC
+                LIMIT :limit
+            ),
+            fused AS (
+                SELECT chunk_id, SUM(score) AS score
+                FROM (
+                    SELECT chunk_id, 1.0 / (:rrf_k + rank) AS score FROM semantic
+                    UNION ALL
+                    SELECT chunk_id, 1.0 / (:rrf_k + rank) AS score FROM keyword
+                ) t
+                GROUP BY chunk_id
+            )
+            SELECT cc.chunk_id, cc.connection_id, cc.connector_key,
+                   cc.operation_id, cc.method, cc.path, cc.summary,
+                   f.score
+            FROM fused f
+            JOIN chunk_connection cc ON cc.chunk_id = f.chunk_id
+            ORDER BY f.score DESC
+            LIMIT :top_k
+            """
+        )
+        # pgvector accepts a list literal in text-mode parameters via the
+        # `[1.0,2.0,...]` representation; SQLAlchemy renders the list that way.
+        emb_literal = "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+        result = await session.execute(
+            sql,
+            {
+                "tenant_id": tenant_id,
+                "emb": emb_literal,
+                "q": query_text or "",
+                "connector_filter": connector_filter,
+                "limit": _PER_CHANNEL_LIMIT,
+                "top_k": top_k,
+                "rrf_k": _RRF_K,
+            },
+        )
+        hits: list[SearchHit] = []
+        for row in result.mappings().all():
+            hits.append(
+                SearchHit(
+                    chunk_id=str(row["chunk_id"]),
+                    connection_id=str(row["connection_id"]),
+                    connector_key=row["connector_key"],
+                    operation_id=row["operation_id"],
+                    method=row["method"],
+                    path=row["path"],
+                    summary=row["summary"] or "",
+                    score=float(row["score"]),
+                    document={},
+                )
+            )
+        return hits
+
+
+class FakeVectorSearch:
+    """In-process search backend used by unit tests.
+
+    Tests call `register(...)` to seed records (one per chunk + connection
+    pairing). `search()` does a cosine over the registered embeddings; tenant
+    filtering is exact-match. No keyword half — RRF degenerates to semantic
+    only, which is fine for testing the orchestration layer.
+    """
+
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._records: list[dict[str, Any]] = []
+
+    def register(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        connector_key: str | None,
+        chunk_id: str,
+        operation_id: str,
+        method: str,
+        path: str,
+        summary: str,
+        embedding: list[float],
+    ) -> None:
+        with self._lock:
+            self._records.append(
+                {
+                    "tenant_id": tenant_id,
+                    "connection_id": connection_id,
+                    "connector_key": connector_key,
+                    "chunk_id": chunk_id,
+                    "operation_id": operation_id,
+                    "method": method,
+                    "path": path,
+                    "summary": summary,
+                    "embedding": list(embedding),
+                }
+            )
+
+    def reset(self) -> None:
+        with self._lock:
+            self._records.clear()
+
+    async def search(
+        self,
+        *,
+        tenant_id: str,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 10,
+        connector_filter: str | None = None,
+    ) -> list[SearchHit]:
+        with self._lock:
+            scored: list[tuple[float, dict[str, Any]]] = []
+            for rec in self._records:
+                if rec["tenant_id"] != tenant_id:
+                    continue
+                if connector_filter and rec["connector_key"] != connector_filter:
+                    continue
+                scored.append((_cosine(embedding, rec["embedding"]), rec))
+            scored.sort(key=lambda p: p[0], reverse=True)
+            return [
+                SearchHit(
+                    chunk_id=rec["chunk_id"],
+                    connection_id=rec["connection_id"],
+                    connector_key=rec["connector_key"],
+                    operation_id=rec["operation_id"],
+                    method=rec["method"],
+                    path=rec["path"],
+                    summary=rec["summary"],
+                    score=score,
+                    document={},
+                )
+                for score, rec in scored[:top_k]
+            ]
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -48,253 +271,26 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-class InMemoryVectorSearch:
-    """In-process tenant-segmented index used by tests + local smoke runs."""
-
-    def __init__(self) -> None:
-        self._lock = RLock()
-        # tenant_id -> chunk_id -> (document_dict, embedding)
-        self._indexes: dict[str, dict[str, tuple[dict[str, Any], list[float]]]] = {}
-
-    async def ensure_index(self, tenant_id: str, dim: int) -> None:
-        with self._lock:
-            self._indexes.setdefault(tenant_id, {})
-
-    async def upsert(
-        self, tenant_id: str, chunks: list[SpecChunk], embeddings: list[list[float]]
-    ) -> None:
-        if len(chunks) != len(embeddings):
-            raise ValueError("chunks and embeddings must align")
-        with self._lock:
-            idx = self._indexes.setdefault(tenant_id, {})
-            for chunk, emb in zip(chunks, embeddings, strict=True):
-                idx[chunk.id] = (chunk_to_search_document(chunk, emb), list(emb))
-
-    async def delete_by_connection(self, tenant_id: str, connection_id: str) -> None:
-        with self._lock:
-            idx = self._indexes.get(tenant_id)
-            if not idx:
-                return
-            to_drop = [
-                cid for cid, (doc, _) in idx.items() if doc.get("connection_id") == connection_id
-            ]
-            for cid in to_drop:
-                idx.pop(cid, None)
-
-    async def delete_chunks(self, tenant_id: str, chunk_ids: list[str]) -> None:
-        with self._lock:
-            idx = self._indexes.get(tenant_id)
-            if not idx:
-                return
-            for cid in chunk_ids:
-                idx.pop(cid, None)
-
-    async def search(
-        self,
-        tenant_id: str,
-        embedding: list[float],
-        *,
-        top_k: int = 10,
-        connector_filter: str | None = None,
-    ) -> list[SearchHit]:
-        with self._lock:
-            idx = self._indexes.get(tenant_id) or {}
-            scored: list[tuple[float, dict[str, Any]]] = []
-            for doc, emb in idx.values():
-                if connector_filter and doc.get("connector_key") != connector_filter:
-                    continue
-                scored.append((_cosine(embedding, emb), doc))
-            scored.sort(key=lambda p: p[0], reverse=True)
-            top = scored[:top_k]
-            return [
-                SearchHit(
-                    chunk_id=doc["id"],
-                    connection_id=doc["connection_id"],
-                    connector_key=doc.get("connector_key"),
-                    operation_id=doc["operation_id"],
-                    method=doc["method"],
-                    path=doc["path"],
-                    summary=doc["summary"],
-                    score=score,
-                    document=doc,
-                )
-                for score, doc in top
-            ]
-
-
-class AzureAISearch:
-    """Adapter over `azure-search-documents`. Lazy-imported; only constructed
-    when Azure env vars are set so tests can run without the package on the
-    network path.
-    """
-
-    def __init__(self, *, endpoint: str, api_key: str, index_prefix: str) -> None:
-        self.endpoint = endpoint
-        self.api_key = api_key
-        self.index_prefix = index_prefix
-
-    def _index_name(self, tenant_id: str) -> str:
-        return f"{self.index_prefix}-{tenant_id}"
-
-    async def ensure_index(self, tenant_id: str, dim: int) -> None:
-        from azure.core.credentials import AzureKeyCredential
-        from azure.search.documents.indexes import SearchIndexClient
-        from azure.search.documents.indexes.models import (
-            HnswAlgorithmConfiguration,
-            SearchableField,
-            SearchField,
-            SearchFieldDataType,
-            SearchIndex,
-            SimpleField,
-            VectorSearchProfile,
-        )
-        from azure.search.documents.indexes.models import (
-            VectorSearch as AzureVectorSearch,
-        )
-
-        client = SearchIndexClient(self.endpoint, AzureKeyCredential(self.api_key))
-        try:
-            client.get_index(self._index_name(tenant_id))
-            return
-        except Exception:
-            pass
-
-        fields = [
-            SimpleField(name="id", type=SearchFieldDataType.String, key=True, filterable=True),
-            SimpleField(name="tenant_id", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="connection_id", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="connector_key", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="operation_id", type=SearchFieldDataType.String, filterable=True),
-            SimpleField(name="method", type=SearchFieldDataType.String, filterable=True),
-            SearchableField(name="path", type=SearchFieldDataType.String),
-            SearchableField(name="summary", type=SearchFieldDataType.String),
-            SearchableField(name="description", type=SearchFieldDataType.String),
-            SearchField(
-                name="tags",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.String),
-                filterable=True,
-                facetable=True,
-            ),
-            SearchField(
-                name="semantic_tags",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.String),
-                filterable=True,
-                facetable=True,
-            ),
-            SimpleField(name="schema_hash", type=SearchFieldDataType.String, filterable=True),
-            SearchField(
-                name="embedding",
-                type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                searchable=True,
-                vector_search_dimensions=dim,
-                vector_search_profile_name="default",
-            ),
-        ]
-        vector_search = AzureVectorSearch(
-            algorithms=[HnswAlgorithmConfiguration(name="hnsw")],
-            profiles=[VectorSearchProfile(name="default", algorithm_configuration_name="hnsw")],
-        )
-        index = SearchIndex(
-            name=self._index_name(tenant_id), fields=fields, vector_search=vector_search
-        )
-        client.create_index(index)
-
-    async def upsert(
-        self, tenant_id: str, chunks: list[SpecChunk], embeddings: list[list[float]]
-    ) -> None:
-        from azure.core.credentials import AzureKeyCredential
-        from azure.search.documents.aio import SearchClient
-
-        async with SearchClient(
-            self.endpoint, self._index_name(tenant_id), AzureKeyCredential(self.api_key)
-        ) as client:
-            docs = [
-                chunk_to_search_document(chunk, emb)
-                for chunk, emb in zip(chunks, embeddings, strict=True)
-            ]
-            await client.merge_or_upload_documents(documents=docs)
-
-    async def delete_by_connection(self, tenant_id: str, connection_id: str) -> None:
-        from azure.core.credentials import AzureKeyCredential
-        from azure.search.documents.aio import SearchClient
-
-        async with SearchClient(
-            self.endpoint, self._index_name(tenant_id), AzureKeyCredential(self.api_key)
-        ) as client:
-            results = await client.search(
-                search_text="*", filter=f"connection_id eq '{connection_id}'", select=["id"]
-            )
-            ids: list[dict[str, str]] = []
-            async for item in results:
-                ids.append({"id": item["id"]})
-            if ids:
-                await client.delete_documents(documents=ids)
-
-    async def delete_chunks(self, tenant_id: str, chunk_ids: list[str]) -> None:
-        from azure.core.credentials import AzureKeyCredential
-        from azure.search.documents.aio import SearchClient
-
-        async with SearchClient(
-            self.endpoint, self._index_name(tenant_id), AzureKeyCredential(self.api_key)
-        ) as client:
-            await client.delete_documents(documents=[{"id": cid} for cid in chunk_ids])
-
-    async def search(
-        self,
-        tenant_id: str,
-        embedding: list[float],
-        *,
-        top_k: int = 10,
-        connector_filter: str | None = None,
-    ) -> list[SearchHit]:
-        from azure.core.credentials import AzureKeyCredential
-        from azure.search.documents.aio import SearchClient
-        from azure.search.documents.models import VectorizedQuery
-
-        vec = VectorizedQuery(vector=embedding, k_nearest_neighbors=top_k, fields="embedding")
-        flt = f"connector_key eq '{connector_filter}'" if connector_filter else None
-        async with SearchClient(
-            self.endpoint, self._index_name(tenant_id), AzureKeyCredential(self.api_key)
-        ) as client:
-            results = await client.search(
-                search_text=None, vector_queries=[vec], filter=flt, top=top_k
-            )
-            hits: list[SearchHit] = []
-            async for doc in results:
-                hits.append(
-                    SearchHit(
-                        chunk_id=doc["id"],
-                        connection_id=doc["connection_id"],
-                        connector_key=doc.get("connector_key"),
-                        operation_id=doc["operation_id"],
-                        method=doc["method"],
-                        path=doc["path"],
-                        summary=doc.get("summary", ""),
-                        score=doc.get("@search.score", 0.0),
-                        document=dict(doc),
-                    )
-                )
-            return hits
-
-
-_in_memory_singleton = InMemoryVectorSearch()
+_fake_singleton = FakeVectorSearch()
 
 
 def get_vector_search() -> VectorSearch:
     settings = get_settings()
-    if settings.use_fake_vector_search or not settings.azure_search_endpoint:
-        return _in_memory_singleton
-    return AzureAISearch(
-        endpoint=settings.azure_search_endpoint,
-        api_key=settings.azure_search_api_key.get_secret_value(),
-        index_prefix=settings.azure_search_index_prefix,
-    )
+    if settings.use_fake_vector_search:
+        return _fake_singleton
+    return PgVectorSearch(get_sessionmaker())
+
+
+def get_fake_vector_search() -> FakeVectorSearch:
+    """Test helper — returns the process-wide fake instance."""
+    return _fake_singleton
 
 
 __all__ = [
-    "AzureAISearch",
-    "InMemoryVectorSearch",
+    "FakeVectorSearch",
+    "PgVectorSearch",
     "SearchHit",
     "VectorSearch",
+    "get_fake_vector_search",
     "get_vector_search",
 ]

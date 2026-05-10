@@ -18,6 +18,8 @@ from harnex_api.db.models import (
     ConnectionMode,
     ConnectionStatus,
 )
+from harnex_api.db.session import session_scope
+from harnex_api.logging import get_logger
 from harnex_api.services.ingestion.fetcher import (
     SpecFetchError,
     SpecValidationError,
@@ -123,6 +125,7 @@ def _to_config(conn: Connection) -> ConnectionConfig:
         spec_blob_path=conn.spec_blob_path,
         auth_flow=conn.auth_flow,
         auth_config=conn.auth_config or {},
+        spec_blob=conn.spec_blob,
     )
 
 
@@ -146,18 +149,21 @@ async def reindex_connection(
         return IndexResult(operation_count=0, chunk_count=0, spec_hash="")
 
     if spec is None:
-        conn.status = ConnectionStatus.ready
-        conn.last_indexed_at = datetime.now(UTC)
-        conn.last_error = None
+        # bare_url is intentionally spec-less — agents call it with raw method+path.
+        if conn.mode == ConnectionMode.bare_url:
+            conn.status = ConnectionStatus.ready
+            conn.last_indexed_at = datetime.now(UTC)
+            conn.last_error = None
+            return IndexResult(operation_count=0, chunk_count=0, spec_hash="")
+        # Every other mode needs a spec; surface this so the wizard shows it.
+        conn.status = ConnectionStatus.error
+        conn.last_error = (
+            "no spec source configured: provide a spec_url or upload an OpenAPI document"
+        )
         return IndexResult(operation_count=0, chunk_count=0, spec_hash="")
 
     conn.status = ConnectionStatus.indexing
-    result = await index_spec(
-        tenant_id=str(tenant_id),
-        connection_id=str(conn.id),
-        connector_key=conn.connector_key,
-        spec=spec,
-    )
+    result = await index_spec(session=session, connection=conn, spec=spec)
     conn.endpoint_count = result.operation_count
     conn.spec_hash = result.spec_hash
     conn.status = ConnectionStatus.ready
@@ -184,19 +190,61 @@ async def ingest_uploaded_spec(
         conn.last_error = str(exc)
         return IndexResult(operation_count=0, chunk_count=0, spec_hash="")
 
+    # Persist the raw bytes so reindex can re-parse the same spec without
+    # requiring the user to re-upload.
+    conn.spec_blob = raw_bytes
     conn.status = ConnectionStatus.indexing
-    result = await index_spec(
-        tenant_id=str(tenant_id),
-        connection_id=str(conn.id),
-        connector_key=conn.connector_key,
-        spec=spec,
-    )
+    result = await index_spec(session=session, connection=conn, spec=spec)
     conn.endpoint_count = result.operation_count
     conn.spec_hash = result.spec_hash
     conn.status = ConnectionStatus.ready
     conn.last_indexed_at = datetime.now(UTC)
     conn.last_error = None
     return result
+
+
+async def reindex_in_new_session(
+    *, tenant_id: UUID, connection_id: UUID
+) -> IndexResult | None:
+    """Reindex the connection in a fresh DB session.
+
+    Used by FastAPI BackgroundTasks after `create_connection` returns —
+    the request-scoped session is closed before background work runs.
+    Records unexpected failures on the connection row so the wizard can
+    surface them; the background task itself never raises.
+    """
+    log = get_logger("harnex_api.connections")
+    log.info(
+        "reindex_bg_start", tenant_id=str(tenant_id), connection_id=str(connection_id)
+    )
+    try:
+        async with session_scope() as session:
+            result = await reindex_connection(
+                session, tenant_id=tenant_id, connection_id=connection_id
+            )
+            log.info(
+                "reindex_bg_done",
+                tenant_id=str(tenant_id),
+                connection_id=str(connection_id),
+                operation_count=result.operation_count if result else None,
+            )
+            return result
+    except Exception as exc:
+        log.warning(
+            "reindex_bg_failed",
+            tenant_id=str(tenant_id),
+            connection_id=str(connection_id),
+            error=str(exc),
+        )
+        with contextlib.suppress(Exception):
+            async with session_scope() as session:
+                conn = await get_connection(
+                    session, tenant_id=tenant_id, connection_id=connection_id
+                )
+                if conn is not None:
+                    conn.status = ConnectionStatus.error
+                    conn.last_error = f"indexing failed: {exc}"
+        return None
 
 
 __all__ = [
@@ -208,4 +256,5 @@ __all__ = [
     "ingest_uploaded_spec",
     "list_connections",
     "reindex_connection",
+    "reindex_in_new_session",
 ]

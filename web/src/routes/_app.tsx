@@ -3,6 +3,7 @@ import {
   Outlet,
   createFileRoute,
   redirect,
+  useMatchRoute,
   useRouter,
 } from "@tanstack/react-router";
 import {
@@ -55,9 +56,9 @@ const NAV = [
   { to: "/api-keys", label: "API Keys", icon: Key },
   { to: "/executions", label: "Executions", icon: Zap },
   { to: "/usage", label: "Usage", icon: BarChart2 },
-];
+] as const;
 
-const PAGE_TITLES: Record<string, string> = {
+const PAGE_TITLES = {
   "/dashboard": "Dashboard",
   "/connections": "Connections",
   "/search": "Search playground",
@@ -65,14 +66,30 @@ const PAGE_TITLES: Record<string, string> = {
   "/executions": "Executions",
   "/usage": "Usage",
   "/style-guide": "Style guide",
-};
+} as const;
 
-function getPageTitle(pathname: string): string {
-  if (pathname.startsWith("/connections/new")) return "New connection";
-  if (pathname.match(/^\/connections\/.+/)) return "Connection";
-  for (const [path, title] of Object.entries(PAGE_TITLES)) {
-    if (pathname.startsWith(path)) return title;
+type ShellTitlePath = keyof typeof PAGE_TITLES;
+
+/** Longer paths first so a hypothetical future `/foo`/`/foo-bar` pairing stays unambiguous */
+const TITLE_MATCH_ORDER_BY_LENGTH: ShellTitlePath[] = (
+  Object.keys(PAGE_TITLES) as ShellTitlePath[]
+).sort((a, b) => b.length - a.length);
+
+function shellPageTitle(matchRoute: ReturnType<typeof useMatchRoute>): string {
+  if (matchRoute({ to: "/connections/new", fuzzy: false })) return "New connection";
+  const connDetail = matchRoute({ to: "/connections/$id", fuzzy: false });
+  if (
+    connDetail &&
+    typeof connDetail.id === "string" &&
+    connDetail.id !== "new"
+  ) {
+    return "Connection";
   }
+
+  for (const path of TITLE_MATCH_ORDER_BY_LENGTH) {
+    if (matchRoute({ to: path, fuzzy: false })) return PAGE_TITLES[path];
+  }
+
   return "Harnex";
 }
 
@@ -93,6 +110,7 @@ function useNarrowNav(): boolean {
 function AppShell() {
   const auth = useAuth();
   const router = useRouter();
+  const matchRoute = useMatchRoute();
   const pathname = router.state.location.pathname;
   const api = useApi();
   const { theme, toggle: toggleTheme } = useTheme();
@@ -246,10 +264,9 @@ function AppShell() {
           {NAV.map((item) => {
             const Icon = item.icon;
             const active =
-              pathname.startsWith(item.to) ||
-              (item.to === "/connections" &&
-                (pathname.startsWith("/connections/") ||
-                  pathname === "/connections"));
+              item.to === "/connections"
+                ? Boolean(matchRoute({ to: "/connections", fuzzy: true }))
+                : Boolean(matchRoute({ to: item.to, fuzzy: false }));
             const isConnections = item.to === "/connections";
             return (
               <Link
@@ -455,7 +472,7 @@ function AppShell() {
             </button>
           )}
           <h1 style={{ fontSize: 14, fontWeight: 500, margin: 0, color: "var(--ink)" }}>
-            {getPageTitle(pathname)}
+            {shellPageTitle(matchRoute)}
           </h1>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
             <a

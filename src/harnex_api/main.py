@@ -24,8 +24,9 @@ from harnex_api.api.routes import (
     usage,
 )
 from harnex_api.api.routes import auth as auth_routes
-from harnex_api.auth.vault import InfisicalVault, set_vault
+from harnex_api.auth.vault import InfisicalVault, InMemoryVault, set_vault
 from harnex_api.config import AppSettings, get_settings
+from harnex_api.connectors.seed import ensure_connector_catalog
 from harnex_api.db.session import session_scope
 from harnex_api.logging import configure_logging, get_logger
 from harnex_api.mcp.server import build_streamable_http_app
@@ -36,6 +37,12 @@ async def _seed_dev_tenant() -> None:
     """Idempotent dev-tenant seed for local/dev startup."""
     async with session_scope() as session:
         await ensure_dev_tenant(session)
+
+
+async def _seed_connector_catalog() -> None:
+    """Idempotent connector-catalog seed; required so the connector_key FK resolves."""
+    async with session_scope() as session:
+        await ensure_connector_catalog(session)
 
 
 async def _provision_sandbox(settings: AppSettings) -> None:
@@ -65,10 +72,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log = get_logger("harnex_api")
         log.info("startup", env=settings.env, version=__version__)
 
-        # Wire up Infisical vault when credentials are present; fall back to InMemoryVault.
+        # Vault selection: Infisical when fully configured; otherwise fail-fast in
+        # staging/prod, warn-and-fallback in local/dev. The InMemoryVault is wiped on
+        # restart, so silently using it in any persistent environment is the source
+        # of "my connection's credentials disappeared" bug reports — make it loud.
         _cid = settings.infisical_client_id.get_secret_value()
         _csec = settings.infisical_client_secret.get_secret_value()
-        if _cid and _csec and settings.infisical_project_id:
+        infisical_configured = bool(_cid and _csec and settings.infisical_project_id)
+        if infisical_configured:
             set_vault(
                 InfisicalVault(
                     base_url=settings.infisical_base_url,
@@ -79,9 +90,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 )
             )
             log.info("vault", backend="infisical", base_url=settings.infisical_base_url)
+        elif settings.env in ("staging", "prod"):
+            raise RuntimeError(
+                "Infisical is required in staging/prod. Set INFISICAL_PROJECT_ID, "
+                "INFISICAL_CLIENT_ID, and INFISICAL_CLIENT_SECRET in the environment."
+            )
         else:
-            log.info("vault", backend="in_memory")
+            set_vault(InMemoryVault())
+            log.warning(
+                "vault_not_persistent",
+                backend="in_memory",
+                env=settings.env,
+                hint=(
+                    "Connection credentials will NOT survive a process restart. "
+                    "Fill INFISICAL_* in .env and run scripts/infisical_smoke.py "
+                    "to enable persistence."
+                ),
+            )
 
+        try:
+            await _seed_connector_catalog()
+            log.info("connector_catalog_seeded")
+        except Exception as exc:
+            # Non-fatal — DB may be unreachable at boot in some local setups.
+            log.warning("connector_catalog_seed_failed", error=str(exc))
         if settings.env in ("local", "dev"):
             try:
                 await _seed_dev_tenant()
