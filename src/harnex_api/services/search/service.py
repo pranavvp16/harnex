@@ -39,6 +39,7 @@ class SearchService:
         hits = await self._search.search(
             tenant_id=tenant_id,
             embedding=embedding,
+            query_text=query,
             top_k=top_k,
             connector_filter=connector_filter,
         )

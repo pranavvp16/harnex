@@ -38,7 +38,19 @@ docker compose up -d    # start everything
 - `INFISICAL_ENCRYPTION_KEY` must be **exactly 32 characters** (raw bytes, not hex). AES-256 needs 32 bytes; a 64-char hex string is 64 bytes and will crash Infisical's KMS init. Generate with `LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32`.
 - If Infisical fails with "Invalid key length" after changing `ENCRYPTION_KEY`, wipe its DB volume (`docker compose stop infisical infisical-db && docker compose rm -f infisical infisical-db && docker volume rm harnex_harnex_infisical_db`) and bring it back up.
 - `web/Dockerfile` pins `pnpm@9` to match the lockfile format. Do not bump to `pnpm@latest` — pnpm 10 changed its build-script security model and blocks esbuild, causing the web build to fail.
-- When Infisical credentials (`INFISICAL_CLIENT_ID` + `INFISICAL_CLIENT_SECRET` + `INFISICAL_PROJECT_ID`) are not set, the API falls back to `InMemoryVault` — secrets are lost on restart. Fine for smoke-testing; not for persisting connections.
+- When Infisical credentials (`INFISICAL_CLIENT_ID` + `INFISICAL_CLIENT_SECRET` + `INFISICAL_PROJECT_ID`) are not set, the API in `local`/`dev` falls back to `InMemoryVault` and emits a `vault_not_persistent` WARN log — secrets are wiped on restart. In `staging`/`prod` the API refuses to start until those three envs are populated. Fill them and run `uv run python scripts/infisical_smoke.py` to verify wiring.
+
+**Infisical setup (self-host, one-time).**
+1. `http://localhost:8090/admin/signup` — create an admin account.
+2. Create a project; copy its ID into `INFISICAL_PROJECT_ID`.
+3. Project → Access Control → Machine Identities → add a Universal Auth identity. Copy `Client ID` / `Client Secret` into `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
+4. `docker compose restart api` → log line should now say `vault backend=infisical`. Run `uv run python scripts/infisical_smoke.py` to round-trip a throwaway secret.
+
+**Moving to Infisical Cloud.** No code changes — same `/api/v3/secrets/raw` API and Universal Auth machine-identity flow.
+1. Create the project on `app.infisical.com` (US) or `eu.infisical.com` (EU); the URL determines data residency.
+2. Add a Machine Identity (Universal Auth); copy Client ID + Secret.
+3. In `.env`: set `INFISICAL_BASE_URL=https://app.infisical.com` (or eu), then `INFISICAL_PROJECT_ID` / `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` from the Cloud project.
+4. Restart the API and re-run the smoke script. Connections created against self-host don't migrate automatically — recreate them after the cutover.
 
 ### Backend (run from repo root, non-docker)
 

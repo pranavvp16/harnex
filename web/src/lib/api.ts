@@ -119,6 +119,7 @@ export interface ConnectionTestResult {
   error_kind: string | null;
   message: string;
   duration_ms: number;
+  metadata?: Record<string, string>;
 }
 
 export interface ExecutionLogItem {

@@ -20,9 +20,8 @@ dependencies = [
     "jsonschema>=4.23",
     "prance>=23.6.21.0",
     "pyyaml>=6.0",
-    "azure-search-documents>=11.5.2",
-    "azure-identity>=1.19",
     "openai>=1.54",
+    "pgvector>=0.3.6",
     "mcp>=1.27",
     "blaxel>=0.2",
     "tenacity>=9.0",
@@ -38,6 +37,7 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.7",
     "mypy>=1.13",
+    "types-PyYAML>=6.0",
     "anyio>=4.6",
     "respx>=0.21",
 ]
@@ -68,8 +68,15 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integration: opt-in tests that require running infrastructure (Postgres, Infisical, etc.)",
+]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "pgvector.*"
+ignore_missing_imports = true

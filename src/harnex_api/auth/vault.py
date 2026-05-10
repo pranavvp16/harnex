@@ -109,7 +109,53 @@ class InfisicalVault:
 
         return await self._with_token_retry(once)
 
+    async def _ensure_folder(self, parent: str, name: str) -> None:
+        """Create one folder segment under `parent`. Already-exists is a no-op.
+
+        Infisical refuses to write a secret to a nested path unless every parent
+        folder exists, so set_secret walks the path and calls this for each
+        segment. The folder API isn't idempotent — a duplicate name returns
+        400 with a "already exists" message, which we treat as success.
+        """
+        body: dict[str, Any] = {
+            "workspaceId": self._project_id,
+            "environment": self._environment,
+            "path": parent or "/",
+            "name": name,
+        }
+
+        async def once() -> httpx.Response:
+            hdrs = await self._token_headers()
+            async with httpx.AsyncClient() as c:
+                return await c.post(
+                    f"{self._base_url}/api/v1/folders",
+                    headers=hdrs,
+                    json=body,
+                    timeout=10.0,
+                )
+
+        r = await self._with_token_retry(once)
+        if r.status_code in (200, 201):
+            return
+        if r.status_code == 400 and "already exists" in r.text:
+            return
+        r.raise_for_status()
+
+    async def _ensure_folder_tree(self, path: str) -> None:
+        """Walk `path` segments and create each folder bottom-up.
+
+        e.g. path="tenants/abc/connections/xyz" → creates `/tenants`, then
+        `/tenants/abc`, then `/tenants/abc/connections`, then
+        `/tenants/abc/connections/xyz`. Each step is idempotent.
+        """
+        segments = [s for s in path.strip("/").split("/") if s]
+        parent = ""
+        for seg in segments:
+            await self._ensure_folder(parent or "/", seg)
+            parent = f"{parent}/{seg}" if parent else f"/{seg}"
+
     async def _upsert(self, path: str, values: dict[str, str]) -> httpx.Response:
+        await self._ensure_folder_tree(path)
         body: dict[str, Any] = {
             "workspaceId": self._project_id,
             "environment": self._environment,

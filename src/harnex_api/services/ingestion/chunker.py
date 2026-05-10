@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 from harnex_api.services.ingestion.enricher import Operation
@@ -10,12 +10,14 @@ from harnex_api.services.ingestion.enricher import Operation
 
 @dataclass(frozen=True)
 class SpecChunk:
-    """One row in the per-tenant Azure AI Search index. Each operation is one chunk."""
+    """One operation, ready to be embedded and persisted to operation_chunks.
+
+    Chunks are keyed on the spec catalog (not tenant/connection) so an
+    identical spec_hash from two different tenants reuses the same chunk
+    rows and the same embeddings.
+    """
 
     id: str
-    tenant_id: str
-    connection_id: str
-    connector_key: str | None
     operation_id: str
     method: str
     path: str
@@ -68,27 +70,23 @@ def _schema_hash(op: Operation) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def chunk_id(tenant_id: str, connection_id: str, operation_id: str, method: str, path: str) -> str:
-    raw = f"{tenant_id}|{connection_id}|{operation_id}|{method}|{path}".encode()
+def chunk_id(spec_hash: str, operation_id: str, method: str, path: str) -> str:
+    raw = f"{spec_hash}|{operation_id}|{method}|{path}".encode()
     return hashlib.sha256(raw).hexdigest()[:32]
 
 
 def operations_to_chunks(
     *,
-    tenant_id: str,
-    connection_id: str,
+    spec_hash: str,
     connector_key: str | None,
     operations: list[Operation],
 ) -> list[SpecChunk]:
     chunks: list[SpecChunk] = []
     for op in operations:
-        cid = chunk_id(tenant_id, connection_id, op.operation_id, op.method, op.path)
+        cid = chunk_id(spec_hash, op.operation_id, op.method, op.path)
         chunks.append(
             SpecChunk(
                 id=cid,
-                tenant_id=tenant_id,
-                connection_id=connection_id,
-                connector_key=connector_key,
                 operation_id=op.operation_id,
                 method=op.method,
                 path=op.path,
@@ -107,11 +105,4 @@ def operations_to_chunks(
     return chunks
 
 
-def chunk_to_search_document(chunk: SpecChunk, embedding: list[float]) -> dict[str, Any]:
-    """Map a SpecChunk + its embedding to the Azure AI Search document shape."""
-    base = asdict(chunk)
-    base["embedding"] = embedding
-    return base
-
-
-__all__ = ["SpecChunk", "chunk_id", "chunk_to_search_document", "operations_to_chunks"]
+__all__ = ["SpecChunk", "chunk_id", "operations_to_chunks"]

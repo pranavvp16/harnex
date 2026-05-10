@@ -309,6 +309,60 @@
   border: 1px dashed var(--border); border-radius: var(--r-md);
 }
 
+.ob-conn-detail {
+  margin-top: 14px;
+  padding: 14px 16px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ob-conn-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ob-conn-detail-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.ob-conn-detail-kind {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.ob-conn-detail-copy {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--slate);
+  margin: 0;
+}
+.ob-conn-detail-routes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ob-conn-detail-route-chip {
+  font-size: 10.5px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-alt);
+  border: 1px solid var(--border-soft);
+  color: var(--ink-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Actions */
 .ob-actions {
   display: flex; align-items: center; justify-content: space-between;

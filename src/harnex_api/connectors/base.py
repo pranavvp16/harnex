@@ -20,6 +20,7 @@ class ConnectionConfig:
     spec_blob_path: str | None
     auth_flow: AuthFlow
     auth_config: dict[str, Any] = field(default_factory=dict)
+    spec_blob: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -66,10 +67,10 @@ class Connector(Protocol):
     treat them uniformly.
     """
 
-    key: str
-    display_name: str
-    supported_auth: list[AuthFlow]
-    default_base_url: str | None
+    key: ClassVar[str]
+    display_name: ClassVar[str]
+    supported_auth: ClassVar[list[AuthFlow]]
+    default_base_url: ClassVar[str | None]
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:
         """Return a normalized OpenAPI 3.x document, or None if there is no spec."""
@@ -122,8 +123,10 @@ class BaseConnector:
             servers = spec.document.get("servers") or []
             if servers and isinstance(servers, list):
                 first = servers[0]
-                if isinstance(first, dict) and isinstance(first.get("url"), str):
-                    return first["url"]
+                if isinstance(first, dict):
+                    url_val = first.get("url")
+                    if isinstance(url_val, str):
+                        return url_val
         return self.default_base_url
 
     async def build_auth_context(
