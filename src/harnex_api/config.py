@@ -21,6 +21,11 @@ class AppSettings(BaseSettings):
     log_level: str = Field("INFO", alias="HARNEX_LOG_LEVEL")
     api_host: str = Field("0.0.0.0", alias="HARNEX_API_HOST")
     api_port: int = Field(8000, alias="HARNEX_API_PORT")
+    # Public-facing hostname (no scheme, no port). Used to allowlist the Host
+    # header in the MCP transport-security middleware — without it FastMCP's
+    # DNS-rebinding guard rejects requests to non-localhost hosts with
+    # "Invalid Host header".
+    public_host: str = Field("", alias="HARNEX_PUBLIC_HOST")
 
     database_url: str = Field(..., alias="DATABASE_URL")
 

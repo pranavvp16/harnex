@@ -88,6 +88,9 @@ services:
       KEYCLOAK_BASE_URL: http://keycloak:8080/auth
       KEYCLOAK_ISSUER_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}/auth
       INFISICAL_BASE_URL: ${INFISICAL_BASE_URL:-https://app.infisical.com}
+      # Allowlisted by the MCP transport-security middleware so the streamable-HTTP
+      # endpoint accepts the public hostname (without it: "Invalid Host header").
+      HARNEX_PUBLIC_HOST: ${HARNEX_PUBLIC_HOST:?}
     command:
       - uvicorn
       - harnex_api.main:app
