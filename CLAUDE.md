@@ -46,11 +46,20 @@ docker compose up -d    # start everything
 3. Project → Access Control → Machine Identities → add a Universal Auth identity. Copy `Client ID` / `Client Secret` into `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
 4. `docker compose restart api` → log line should now say `vault backend=infisical`. Run `uv run python scripts/infisical_smoke.py` to round-trip a throwaway secret.
 
-**Moving to Infisical Cloud.** No code changes — same `/api/v3/secrets/raw` API and Universal Auth machine-identity flow.
+**Moving to Infisical Cloud (dev).** No code changes — same `/api/v3/secrets/raw` API and Universal Auth machine-identity flow.
 1. Create the project on `app.infisical.com` (US) or `eu.infisical.com` (EU); the URL determines data residency.
 2. Add a Machine Identity (Universal Auth); copy Client ID + Secret.
-3. In `.env`: set `INFISICAL_BASE_URL=https://app.infisical.com` (or eu), then `INFISICAL_PROJECT_ID` / `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` from the Cloud project.
+3. In `.env`: set `INFISICAL_BASE_URL=https://app.infisical.com` (or eu), then `INFISICAL_PROJECT_ID` / `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` from the Cloud project. Also set `INFISICAL_INTERNAL_BASE_URL` to the same value — docker-compose reads that one for the api service.
 4. Restart the API and re-run the smoke script. Connections created against self-host don't migrate automatically — recreate them after the cutover.
+
+**Prod is a separate Infisical Cloud project.** Do not reuse the dev project for prod — a leaked dev token would expose prod creds, since tenant isolation is per-path inside a project, not per-environment. Provision a fresh project + machine identity for prod and wire it via the prod host's environment (NOT this repo's `.env`):
+1. New Cloud project `harnex-prod`; capture the project UUID.
+2. Machine identity (Universal Auth) with a custom role `harnex-runtime`, scoped to the `prod` environment, `secrets:read/create/update/delete` + `folders:read/create` on `/tenants/**` only. Do **not** grant Admin or workspace-level write.
+3. On the prod host: `HARNEX_ENV=prod`, `INFISICAL_BASE_URL=https://app.infisical.com` (+ matching `INFISICAL_INTERNAL_BASE_URL`), `INFISICAL_PROJECT_ID=<prod uuid>`, `INFISICAL_ENVIRONMENT=prod`, `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` from the prod identity. `INFISICAL_ENCRYPTION_KEY` and `INFISICAL_AUTH_SECRET` are self-host-only — omit on Cloud.
+4. With `HARNEX_ENV=prod`, missing Infisical envs RuntimeError on startup (`main.py` lifespan). Verify with `uv run python scripts/infisical_smoke.py` — expect `environment=prod` in the OK line.
+5. Verify isolation: the dev machine identity must 401/403 against the prod project UUID. If it doesn't, the role is mis-scoped.
+
+When delegating prod provisioning to another AI agent, hand over a self-contained runbook with the current dev project UUID + client ID listed as "do not touch" — see the prod handoff prompt format used in this repo's history. The agent should never need to edit code; if it does, the ask was misunderstood.
 
 ### Backend (run from repo root, non-docker)
 
@@ -101,6 +110,179 @@ The TanStack Router plugin regenerates `web/src/routeTree.gen.ts` automatically 
 ```bash
 uv run python scripts/blaxel_provision.py   # idempotent; reads BLAXEL_* from .env
 ```
+
+## Production deployment (Azure)
+
+Single-VM deployment behind Caddy with auto-TLS, image delivery via Azure Container Registry, GitHub Actions CI/CD with federated OIDC (no static Azure creds in repo secrets).
+
+### Topology
+
+```
+Internet  ─→  Caddy (:80/:443, Let's Encrypt)  ─→  api / web / keycloak  (docker network only)
+                                                    │
+                                                    └─ postgres / keycloak-db / redis  (also internal)
+```
+
+Single hostname, path-based routing:
+
+| Path | Service | Notes |
+|---|---|---|
+| `/` | `web` (nginx serving the Vite SPA bundle) | |
+| `/v1/*` | `api` | REST/admin (console UI) |
+| `/mcp`, `/mcp/*` | `api` | The shipped product surface |
+| `/healthz` | `api` | Used by GH Actions deploy smoke-check |
+| `/auth/*` | `keycloak` | `KC_HTTP_RELATIVE_PATH=/auth`; OIDC issuer URL ends in `/auth/realms/harnex` |
+
+`infisical` is **not** part of the prod compose — we use Infisical Cloud. The self-host services from the base compose are parked under the `self-host` profile (only start with `docker compose --profile self-host up`). See the section above for the prod project setup.
+
+### Provisioned resources (current)
+
+Persistent operational handles — not secrets, safe to keep in this file. Capture these from `scripts/azure_provision.sh` output if you ever re-provision:
+
+| Resource | Value |
+|---|---|
+| Subscription | `Azure subscription 1` (`88134bda-0caf-435b-8108-b5ac3ad89af7`) |
+| Tenant | `f5a2aae8-8e2e-4b40-9270-601e8c26f512` |
+| Resource group | `harnex-rg` (eastus2) |
+| VM | `harnex-vm` — `Standard_D4as_v7` (4 vCPU / 16 GiB), Premium SSD |
+| Public IP / FQDN | `harnex-app.eastus2.cloudapp.azure.com` |
+| Container registry | `harnexacr.azurecr.io` (Basic SKU) |
+| GH Actions identity (OIDC) | `harnex-gh-deploy`, client `89ceef77-5b13-4183-ace4-81ea11a29c99` (AcrPush on `harnexacr`; federated trust on `repo:pranavvp16/harnex:ref:refs/heads/main`) |
+| Infisical Cloud project (prod) | `b8d0f796-3e8f-4a32-bc8d-db58c4acb07c` — role `harnex-runtime` (secrets r/w/u/d on `/tenants/**` in `prod` env; folders r/c) |
+| Infisical machine identity (prod) | `6adcfc9a-fceb-4fc1-9940-4ad889a55faa` (client ID `a2321c8d-150d-4276-acc3-964d037993d1`) |
+
+The dev Infisical project (`1823b5a4-8477-466a-94a9-c72fce06e21a`) is intentionally separate — see the Infisical section above. **Never** add the dev machine identity to the prod project.
+
+### Files that drive the deployment
+
+- `docker-compose.prod.yml` — override layered on top of `docker-compose.yml`. Pulls api/web images from ACR (no `build:` in prod), removes published ports from everything but Caddy, binds DB volumes to `/data/*`, switches Keycloak to `start --import-realm` with prod hostname/proxy hardening, parks self-host Infisical under the `self-host` profile.
+- `infra/caddy/Caddyfile` — single-host routing; Caddy auto-provisions Let's Encrypt for `*.cloudapp.azure.com`.
+- `infra/keycloak/post-import.sh` — kcadm patch for the `harnex-web` client (redirectUris, webOrigins, rootUrl/baseUrl) to point at the public host, plus rotates the `harnex-admin-cli` secret away from `change-me-after-import`. **Re-run after any realm re-import.**
+- `scripts/azure_provision.sh` — idempotent Azure setup. Re-run is safe — checks before each create.
+- `scripts/vm_bootstrap.sh` — runs once on the VM: installs Docker + az CLI, formats and mounts the data disk at `/data`, clones the repo. NVMe-aware data-disk detection.
+- `scripts/deploy.sh` — called by `.github/workflows/deploy.yml` over SSH: `az login --identity` → `az acr login` → `docker compose pull api web` → `up -d` → prune.
+- `.env.prod.example` — production env template. Real `.env` lives only on the VM at `/opt/harnex/.env` (`chmod 600`).
+- `.github/workflows/ci.yml` — backend (ruff + mypy + pytest unit) and frontend (vite build) on PRs. Frontend build uses `pnpm exec vite build` directly because `routeTree.gen.ts` is gitignored and only emitted by the Vite plugin at vite-startup — so `tsc -b` (which `pnpm build` runs first) would fail in a fresh CI checkout.
+- `.github/workflows/deploy.yml` — on push to `main`: federated OIDC login → buildx push to ACR (with `${SHA::12}` and `latest` tags) → SSH to VM → run `deploy.sh` → smoke-check `/healthz`.
+
+### GitHub repo secrets (already set on `pranavvp16/harnex`)
+
+| Secret | Purpose |
+|---|---|
+| `AZURE_CLIENT_ID` | OIDC federated identity (no Azure passwords stored) |
+| `AZURE_TENANT_ID` | |
+| `AZURE_SUBSCRIPTION_ID` | |
+| `ACR_LOGIN_SERVER`, `ACR_NAME` | Registry target |
+| `HARNEX_PUBLIC_HOST` | Used in image build args (VITE_*) + healthz smoke check |
+| `VM_SSH_HOST`, `VM_SSH_USER`, `VM_SSH_PRIVATE_KEY` | Per-deploy SSH access; user is `azureuser`, key is `~/.ssh/harnex_azure_ed25519` locally |
+
+A read-only **deploy key** (`harnex-vm (read-only)`) is also installed on the repo so the VM can `git pull` over SSH (the repo is private). The VM's `~/.ssh/config` aliases `github.com` to use `~/.ssh/github_deploy`.
+
+### Day-1 (first deploy, one-time)
+
+Already done on this repo; documented for re-creation / disaster recovery.
+
+```bash
+# 1. Provision Azure (idempotent — RG, VM, NSG, public IP, ACR, OIDC identity).
+GH_REPO=pranavvp16/harnex bash scripts/azure_provision.sh
+
+# 2. Set GitHub repo secrets per the table above using values it prints.
+
+# 3. Bootstrap the VM. The repo is private, so create a read-only deploy key first:
+ssh -i ~/.ssh/harnex_azure_ed25519 azureuser@<fqdn> \
+    'ssh-keygen -t ed25519 -f ~/.ssh/github_deploy -N "" -q && cat ~/.ssh/github_deploy.pub'
+# Paste the pubkey into:  gh repo deploy-key add <pubkey-file> --repo pranavvp16/harnex --title "harnex-vm (read-only)"
+ssh -i ~/.ssh/harnex_azure_ed25519 azureuser@<fqdn> '
+    sudo apt-get install -y git
+    sudo git clone git@github.com:pranavvp16/harnex.git /opt/harnex
+    sudo chown -R azureuser:azureuser /opt/harnex
+    sudo ACR_NAME=harnexacr bash /opt/harnex/scripts/vm_bootstrap.sh
+'
+
+# 4. Generate /opt/harnex/.env on the VM from .env.prod.example. Strong randoms for
+#    POSTGRES_PASSWORD, KEYCLOAK_DB_PASSWORD, KEYCLOAK_ADMIN_PASSWORD, KEYCLOAK_ADMIN_CLIENT_SECRET.
+#    Set HARNEX_PUBLIC_HOST, ACR_LOGIN_SERVER, IMAGE_TAG=latest. Fill OpenAI + Blaxel keys.
+#    INFISICAL_BASE_URL=https://app.infisical.com; INFISICAL_PROJECT_ID/CLIENT_ID/CLIENT_SECRET from
+#    the harnex-prod Cloud project (above). chmod 600 /opt/harnex/.env.
+
+# 5. First boot, manually (workflow needs ACR to already contain images before its `pull` step works):
+#    a) Trigger the deploy workflow once from main — it builds + pushes the images and runs deploy.sh.
+#    b) Or, bring up the infrastructure services first and let the deploy workflow seed images:
+#         sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps \
+#             postgres keycloak-db keycloak redis
+
+# 6. Patch the realm to the public hostname (one-time after first Keycloak boot):
+ssh -i ~/.ssh/harnex_azure_ed25519 azureuser@<fqdn> \
+    'cd /opt/harnex && sudo -E bash infra/keycloak/post-import.sh'
+
+# 7. Verify:
+curl https://<fqdn>/healthz                                       # → {"status":"ok","env":"prod",...}
+curl https://<fqdn>/auth/realms/harnex/.well-known/openid-configuration | jq .issuer
+# api startup log should contain:  vault backend=infisical base_url=https://app.infisical.com
+```
+
+### Day-2 operations
+
+```bash
+# SSH (NSG allows :22 from anywhere — strong key auth only)
+ssh -i ~/.ssh/harnex_azure_ed25519 azureuser@harnex-app.eastus2.cloudapp.azure.com
+
+# Stack status
+sudo docker compose -f /opt/harnex/docker-compose.yml -f /opt/harnex/docker-compose.prod.yml ps
+
+# Tail logs (api / web / caddy / keycloak)
+sudo docker compose -f /opt/harnex/docker-compose.yml -f /opt/harnex/docker-compose.prod.yml logs -f api
+
+# Rolling restart (e.g. after editing .env)
+sudo docker compose -f /opt/harnex/docker-compose.yml -f /opt/harnex/docker-compose.prod.yml restart api
+
+# Manual redeploy of the latest image already in ACR (without pushing to main)
+sudo IMAGE_TAG=latest docker compose -f /opt/harnex/docker-compose.yml -f /opt/harnex/docker-compose.prod.yml pull api web
+sudo docker compose -f /opt/harnex/docker-compose.yml -f /opt/harnex/docker-compose.prod.yml up -d
+
+# Roll back to a previous SHA
+sudo IMAGE_TAG=<old-sha-12chars> docker compose -f ... pull api web
+sudo IMAGE_TAG=<old-sha-12chars> docker compose -f ... up -d
+
+# Persistent data lives at /data (Premium SSD, mounted by vm_bootstrap.sh):
+#   /data/postgres, /data/keycloak-db, /data/caddy, /data/caddy-config
+# /data/infisical-db is left over from the brief self-host run; safe to ignore.
+```
+
+### CI/CD flow
+
+- **Push to any branch / open PR** → `.github/workflows/ci.yml` runs: backend (ruff check + mypy + pytest unit) and frontend (vite build) in parallel.
+- **Push to `main`** → `.github/workflows/deploy.yml`:
+  1. Federated OIDC login to Azure via `azure/login@v2` (no client secret in GH).
+  2. `docker buildx build --push` for `harnex-api` and `harnex-web` to ACR; tagged with `${SHA::12}` and `latest`. The `web` build receives `VITE_*` build args from the `HARNEX_PUBLIC_HOST` secret so the bundle bakes in the right OIDC redirect URL.
+  3. SSH to the VM, `git fetch && git checkout <sha>`, then `bash scripts/deploy.sh <tag>`.
+  4. `deploy.sh` uses the VM's system-assigned managed identity (AcrPull) — no static ACR creds on the VM.
+  5. Smoke check: `curl https://<fqdn>/healthz` retried up to 20× with 5-second backoff.
+
+### Deployment gotchas (real ones we hit)
+
+- **`Standard_D4s_v5` may be capacity-restricted** in eastus2 for some subscriptions (`SkuNotAvailable`). `Standard_D4as_v7` is the AMD-equivalent and was unrestricted; same price tier. Override via `VM_SIZE=...` when running the provision script.
+- **NVMe data disks**: D*as_v7 VMs expose attached disks as `/dev/nvme0n2`, not `/dev/sd?`. `vm_bootstrap.sh` scans all whole disks via `lsblk` to handle both.
+- **Compose env interpolation runs *before* override merge.** The base `docker-compose.yml` has `KEYCLOAK_BASE_URL: ${KEYCLOAK_INTERNAL_BASE_URL:-http://keycloak:8080}` — setting `KEYCLOAK_INTERNAL_BASE_URL` in the prod override does *not* change the api's `KEYCLOAK_BASE_URL`, because that interpolation has already happened. Override the canonical names (`KEYCLOAK_BASE_URL`, `KEYCLOAK_ISSUER_BASE_URL`) directly in the prod compose.
+- **Keycloak 25 deprecated `KC_PROXY`**. Use `KC_PROXY_HEADERS=xforwarded` so X-Forwarded-* from Caddy is honored. With `KC_HOSTNAME_STRICT_HTTPS=true`, Keycloak rejects plain HTTP — that means it won't serve traffic until Caddy is in front of it.
+- **`KC_HTTP_RELATIVE_PATH=/auth`** means Keycloak listens on `/auth/...` *inside* the container too. The api needs `KEYCLOAK_BASE_URL=http://keycloak:8080/auth` (note the `/auth` suffix); the Caddyfile uses `handle /auth/*` (NOT `handle_path /auth/*`) so the prefix passes through.
+- **Caddyfile `servers { trusted_proxies }`** belongs only in the *global options block* (the unnamed `{ ... }` at the top of the file), never inside a site block — placing it inside causes a parse error and Caddy refuses to start. Caddy is the edge here; we don't need it at all.
+- **routeTree.gen.ts is gitignored.** `pnpm build` does `tsc -b && vite build`, but tsc runs first and fails on the missing file. CI calls `pnpm exec vite build` directly so the TanStack Router Vite plugin emits the route tree before bundling. Run the strict `pnpm typecheck` locally.
+- **Compose profiles are evaluated *after* env interpolation.** The base compose's self-host `infisical*` services reference `${INFISICAL_ENCRYPTION_KEY:?}` etc. Even though prod puts those services under `profiles: [self-host]` and doesn't start them, compose still parses the interpolations — so the prod `.env` needs placeholder values for `INFISICAL_ENCRYPTION_KEY`, `INFISICAL_AUTH_SECRET`, `INFISICAL_POSTGRES_PASSWORD` (any non-empty string).
+- **GH Actions runner IPs are dynamic.** The provision script initially restricts SSH to the operator's `/32`; for the deploy workflow to land, the `allow-ssh` NSG rule is widened to `0.0.0.0/0` (key auth only — Ed25519, no passwords).
+- **The repo is private.** The VM clones via SSH using a per-VM **deploy key** (read-only) registered on GitHub, not via the same key used for `ssh azureuser@...`. Don't reuse keys across roles.
+- **`docker compose !reset` / `!override` tags require compose v2.24+.** `vm_bootstrap.sh` installs the latest compose-plugin from Docker's apt repo, so this is fine in practice — but Docker Desktop on macOS may ship an older version; validate with `docker compose version`.
+
+### Cost (eastus2, pay-as-you-go)
+
+D4as_v7 ~$140/mo + 2× 64 GiB Premium SSD ~$20/mo + Standard Public IP ~$4/mo + ACR Basic ~$5/mo + low egress ~$5/mo ≈ **$175/mo**. Azure DNS label (`*.cloudapp.azure.com`) is free.
+
+### Out of scope (future hardening)
+
+- **Backups.** Set up Azure Backup on the VM and/or scheduled `pg_dump` → Azure Blob Storage.
+- **HA.** Single VM is a SPOF. Migrating to AKS + managed Postgres + Keycloak-on-App-Service is the next step.
+- **Monitoring.** Azure Monitor agent + log forwarding not yet wired.
+- **Real domain.** When ready, CNAME a real domain at the cloudapp record, update Caddy + Keycloak issuer URL + realm `redirectUris` (5-min change via `post-import.sh`).
 
 ## Architecture
 
