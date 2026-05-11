@@ -27,6 +27,14 @@ export default [
     },
     rules: {
       ...js.configs.recommended.rules,
+      ...reactHooks.configs.recommended.rules,
+      // Recommended in v7+ includes React Compiler-oriented rules that flag many
+      // valid patterns here (effects that set derived UI state, react-hook-form, etc.).
+      // Keep exhaustive-deps + rules-of-hooks enforced; soften the newer checks.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/incompatible-library": "off",
       "no-undef": "off",
       "no-unused-vars": "off",
       "no-useless-assignment": "off",
