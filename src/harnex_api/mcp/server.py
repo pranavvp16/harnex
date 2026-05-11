@@ -16,9 +16,11 @@ from typing import Any
 from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from harnex_api.config import get_settings
 from harnex_api.db.session import session_scope
 from harnex_api.services.api_key_auth import ApiKeyAuthError, authenticate_key
 from harnex_api.services.execute.operation import ExecuteParams
@@ -68,8 +70,24 @@ def create_mcp_app() -> FastMCP:
     global _fast_mcp
     if _fast_mcp is not None:
         return _fast_mcp
+
+    # DNS-rebinding allowlist: localhost defaults + the configured public host.
+    # Without populating allowed_hosts, FastMCP rejects every non-localhost Host
+    # header with "Invalid Host header" — so prod / Cursor / Claude Desktop all
+    # break until the public hostname is in this list.
+    settings = get_settings()
+    allowed_hosts: list[str] = [
+        "127.0.0.1",
+        "localhost",
+        "127.0.0.1:*",
+        "localhost:*",
+    ]
+    if settings.public_host:
+        allowed_hosts += [settings.public_host, f"{settings.public_host}:*"]
+    transport_security = TransportSecuritySettings(allowed_hosts=allowed_hosts)
+
     # Mounted at `/mcp` in `main.py`; Starlette strips that prefix so the inner path is `/`.
-    mcp = FastMCP("harnex", streamable_http_path="/")
+    mcp = FastMCP("harnex", streamable_http_path="/", transport_security=transport_security)
 
     @mcp.tool()
     async def search(

@@ -200,6 +200,5 @@ export function useEmitGenericState<T extends AuthValues & { name?: string; base
     emit(form.getValues() as T);
     const sub = form.watch((values) => emit(values as T));
     return () => sub.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, onStateChange, mode, fileRef]);
 }

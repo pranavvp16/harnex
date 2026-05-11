@@ -342,6 +342,7 @@ function MarketingPage() {
         }}
       >
         <div
+          className="marketing-header-inner"
           style={{
             maxWidth: 1120,
             margin: "0 auto",
@@ -353,7 +354,7 @@ function MarketingPage() {
           }}
         >
           <HarnexLogo size={22} />
-          <nav style={{ display: "flex", gap: 4, flex: 1 }}>
+          <nav className="marketing-nav">
             {["The Problem", "How it works", "Use cases", "Security", "Pricing"].map((l) => (
               <a
                 key={l}
@@ -401,6 +402,7 @@ function MarketingPage() {
       {/* ── Hero ── */}
       <section
         id="product"
+        className="marketing-section marketing-hero"
         style={{
           maxWidth: 1120,
           margin: "0 auto",
@@ -464,7 +466,7 @@ function MarketingPage() {
           The last MCP you'll ever need.
         </p>
 
-        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: 20 }}>
+        <div className="marketing-hero-actions">
           {isAuthed ? (
             <Link to="/dashboard">
               <button className="btn btn-accent btn-lg">Open console →</button>
@@ -482,6 +484,7 @@ function MarketingPage() {
         </div>
 
         <div
+          className="marketing-command"
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -502,6 +505,7 @@ function MarketingPage() {
 
         {/* Console preview */}
         <div
+          className="marketing-console"
           style={{
             borderRadius: "var(--r-xl)",
             border: "1px solid var(--border)",
@@ -530,9 +534,10 @@ function MarketingPage() {
             </span>
           </div>
           {/* 3-col console mockup */}
-          <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr", minHeight: 320 }}>
+          <div className="marketing-console-grid">
             {/* Sidebar */}
             <div
+              className="marketing-console-sidebar"
               style={{
                 borderRight: "1px solid var(--border)",
                 padding: "14px 10px",
@@ -577,7 +582,7 @@ function MarketingPage() {
               ))}
             </div>
             {/* Search panel */}
-            <div style={{ borderRight: "1px solid var(--border)", padding: 16 }}>
+            <div className="marketing-console-search" style={{ borderRight: "1px solid var(--border)", padding: 16 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
                 <input
                   className="input"
@@ -648,7 +653,7 @@ function MarketingPage() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
           <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>The real problem</div>
           <h2
             style={{
@@ -840,7 +845,7 @@ function MarketingPage() {
           Every other approach gives your agent N tools for N APIs and hopes the LLM picks correctly.
           Harnex inverts that — search and execute are universal, not per-service wrappers.
         </p>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <div className="responsive-grid-3" style={{ gap: 16 }}>
           {FEATURES.map((f) => (
             <div key={f.title} className="card" style={{ padding: 24 }}>
               <div
@@ -877,7 +882,7 @@ function MarketingPage() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
           <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>The difference</div>
           <h2
             style={{
@@ -893,7 +898,7 @@ function MarketingPage() {
             What you're{" "}
             <span className="serif-i" style={{ color: "var(--accent)" }}>getting.</span>
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div className="responsive-grid-2" style={{ gap: 16 }}>
             {COMPARISON.map((col) => (
               <div
                 key={col.side}
@@ -961,7 +966,7 @@ function MarketingPage() {
 
       {/* ── How it works ── */}
       <section id="how-it-works">
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
           <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>Zero to two tools</div>
           <h2
             style={{
@@ -978,9 +983,8 @@ function MarketingPage() {
             {" "}in minutes
           </h2>
           <div
+            className="responsive-grid-4"
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
               border: "1px solid var(--border)",
               borderRadius: "var(--r-lg)",
               overflow: "hidden",
@@ -1024,7 +1028,7 @@ function MarketingPage() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
           <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>Who escapes first</div>
           <h2
             style={{
@@ -1052,7 +1056,7 @@ function MarketingPage() {
           >
             Teams shipping AI agents on top of real APIs. They don't have the luxury of 50 custom tools.
           </p>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          <div className="responsive-grid-3" style={{ gap: 16 }}>
             {USE_CASES.map((u) => (
               <div key={u.title} className="card" style={{ padding: 24 }}>
                 <span className="badge badge-slate badge-mono" style={{ marginBottom: 10, display: "inline-block" }}>
@@ -1089,12 +1093,12 @@ function MarketingPage() {
       {/* ── Security ── */}
       <section id="security">
         <div
+          className="marketing-section marketing-security-grid"
           style={{
             maxWidth: 1120,
             margin: "0 auto",
             padding: "80px 32px",
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
             gap: 56,
             alignItems: "center",
           }}
@@ -1217,7 +1221,7 @@ function MarketingPage() {
           borderBottom: "1px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
           <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>Get out now</div>
           <h2
             style={{
@@ -1232,7 +1236,7 @@ function MarketingPage() {
             Start free.{" "}
             <span className="serif-i" style={{ color: "var(--accent)" }}>Scale without pain.</span>
           </h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+          <div className="responsive-grid-3" style={{ gap: 16 }}>
             {PRICING.map((p) => (
               <div
                 key={p.name}
