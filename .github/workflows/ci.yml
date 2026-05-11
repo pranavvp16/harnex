@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff + mypy + pytest unit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Mypy
+        run: uv run mypy src
+
+      - name: Pytest (unit)
+        # tests/conftest.py forces fake embeddings + a dummy DATABASE_URL,
+        # so tests/unit needs no infra. tests/integration is intentionally skipped.
+        run: uv run pytest tests/unit
+
+  frontend:
+    # The web/ package has eslint v9 installed but no eslint.config.js — the lint
+    # script would always fail. Once a config lands, add `- run: pnpm lint` back
+    # and rename this job to include eslint.
+    name: Frontend (build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        # `pnpm build` runs `tsc -b && vite build`, but tsc can't typecheck
+        # because src/routeTree.gen.ts is gitignored and only emitted by the
+        # TanStack Router Vite plugin at vite-startup. Invoke vite directly so
+        # the plugin generates the route tree, then bundles. Type errors that
+        # would block runtime show up here as build failures.
+        # (Devs run `pnpm typecheck` locally for the strict check.)
+        run: pnpm exec vite build
