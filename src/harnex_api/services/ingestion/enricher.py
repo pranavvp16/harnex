@@ -79,10 +79,12 @@ def _semantic_tags(method: str, path: str, summary: str, declared_tags: list[str
 
 
 def _summarize(method: str, path: str, op: dict[str, Any]) -> str:
-    if isinstance(op.get("summary"), str) and op["summary"].strip():
-        return op["summary"].strip()
-    if isinstance(op.get("description"), str) and op["description"].strip():
-        return op["description"].split("\n", 1)[0].strip()
+    summary_val = op.get("summary")
+    if isinstance(summary_val, str) and summary_val.strip():
+        return summary_val.strip()
+    desc_val = op.get("description")
+    if isinstance(desc_val, str) and desc_val.strip():
+        return desc_val.split("\n", 1)[0].strip()
     return f"{method.upper()} {path}"
 
 
@@ -109,7 +111,8 @@ def enrich_spec(spec: dict[str, Any]) -> list[Operation]:
                 op.get("operationId") if isinstance(op.get("operationId"), str) else None
             ) or _generate_operation_id(method, path)
             summary = _summarize(method, path, op)
-            description = op.get("description") if isinstance(op.get("description"), str) else ""
+            desc_raw = op.get("description")
+            description: str = desc_raw if isinstance(desc_raw, str) else ""
             declared_tags = [t for t in (op.get("tags") or []) if isinstance(t, str)]
             params = list(path_level_params) + list(op.get("parameters") or [])
             security = (

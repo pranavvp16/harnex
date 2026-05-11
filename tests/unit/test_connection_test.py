@@ -10,6 +10,7 @@ from harnex_api.services.connection_test import (
     _classify,
     _resolve_base_url,
     _resolve_test_endpoint,
+    extract_probe_metadata,
 )
 from harnex_api.services.connection_test import (
     test_connection_config as run_test,
@@ -83,6 +84,143 @@ def test_classify_status_codes() -> None:
     assert ok is False and kind == "not_found"
     ok, kind, _ = _classify(503)
     assert ok is False and kind == "upstream_error"
+
+
+def test_extract_probe_metadata_empty_when_not_ok() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=False,
+        connector_key="github",
+        display_base_url="https://api.github.com",
+        response_headers={},
+        raw_body=b'{"login":"octocat"}',
+    )
+    assert meta == {}
+
+
+def test_extract_probe_metadata_instance_only_generic() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key=None,
+        display_base_url="https://ci.example.com:8080/",
+        response_headers={"content-type": "text/html"},
+        raw_body=b"<html></html>",
+    )
+    assert meta["Instance"] == "ci.example.com:8080"
+    assert meta["Content-Type"] == "text/html"
+
+
+def test_extract_github_metadata() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="github",
+        display_base_url="https://api.github.com",
+        response_headers={"Content-Type": "application/json"},
+        raw_body=b'{"login":"octocat","name":"Octo Cat"}',
+    )
+    assert meta["Username"] == "octocat"
+    assert meta["Name"] == "Octo Cat"
+    assert meta["Instance"] == "api.github.com"
+
+
+def test_extract_gitlab_metadata() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="gitlab",
+        display_base_url="https://gitlab.com",
+        response_headers={"content-type": "application/json"},
+        raw_body=b'{"username":"dev","name":"Dev User"}',
+    )
+    assert meta["Username"] == "dev"
+    assert meta["Name"] == "Dev User"
+
+
+def test_extract_jira_metadata() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="jira",
+        display_base_url="https://acme.atlassian.net",
+        response_headers={},
+        raw_body=(b'{"displayName":"Pat","emailAddress":"pat@example.com","accountId":"a1"}'),
+    )
+    assert meta["Display name"] == "Pat"
+    assert meta["Email"] == "pat@example.com"
+
+
+def test_extract_jenkins_metadata_prefers_fullname() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="jenkins",
+        display_base_url="https://jenkins.example/",
+        response_headers={},
+        raw_body=b'{"fullName":"Pat Dev","id":"pat"}',
+    )
+    assert meta["User"] == "Pat Dev"
+
+
+def test_extract_jenkins_metadata_falls_back_id() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="jenkins",
+        display_base_url="https://jenkins.example/",
+        response_headers={},
+        raw_body=b'{"id":"pat_bot"}',
+    )
+    assert meta["User"] == "pat_bot"
+
+
+def test_extract_slack_skips_when_ok_false() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="slack",
+        display_base_url="https://slack.com/api",
+        response_headers={},
+        raw_body=b'{"ok":false,"error":"invalid_auth"}',
+    )
+    assert "Team" not in meta and "User" not in meta
+    assert meta["Instance"] == "slack.com"
+
+
+def test_extract_slack_metadata_when_ok_true() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="slack",
+        display_base_url="https://slack.com/api",
+        response_headers={"content-type": "application/json; charset=utf-8"},
+        raw_body=(
+            b'{"ok":true,"team":"acme","user":"alice","team_id":"T1",'
+            b'"url":"https://acme.slack.com/"}'
+        ),
+    )
+    assert meta["Team"] == "acme"
+    assert meta["User"] == "alice"
+
+
+def test_extract_linear_metadata() -> None:
+    body = b'{"data":{"viewer":{"id":"lin_1","name":"Alice","email":"a@example.com"}}}'
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="linear",
+        display_base_url="https://api.linear.app",
+        response_headers={"content-type": "application/json"},
+        raw_body=body,
+    )
+    assert meta["Viewer ID"] == "lin_1"
+    assert meta["Name"] == "Alice"
+
+
+def test_extract_kubernetes_versions() -> None:
+    meta = extract_probe_metadata(
+        probe_ok=True,
+        connector_key="kubernetes",
+        display_base_url="https://kube.example:6443",
+        response_headers={"content-type": "application/json"},
+        raw_body=(
+            b'{"kind":"APIVersions","versions":["v1","apps/v1"],'
+            b'"serverAddressByClientCIDRs":[{"serverAddress":"1.2.3.4:6443"}]}'
+        ),
+    )
+    assert meta["Instance"] == "kube.example:6443"
+    assert "v1" in meta["API versions"]
 
 
 @pytest.mark.asyncio

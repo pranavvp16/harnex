@@ -1,5 +1,7 @@
 import type { MarkKey } from "./marks";
 
+import { wireLabelsForConnector } from "./types";
+
 const HUB = { x: 420, y: 400 };
 
 interface RingNode {
@@ -47,31 +49,23 @@ const NODE_LIST: PlacedNode[] = [
   }),
 ];
 
-const DEFAULT_LABELS: string[] = [
-  "GET /v1/data",
-  "POST /v1/event",
-  "GET /v1/items",
-  "PATCH /v1/item",
-  "GET /health",
-];
-
-const SELECTED_LABELS: string[] = [
-  "GET /resources",
-  "POST /actions",
-  "GET /events",
-  "PATCH /state",
-  "POST /webhook",
-  "GET /schema",
-];
-
 export interface OnboardingCanvasProps {
   step: number;
   selectedConnector?: MarkKey | null;
+  /** Step-3 grid hover — wins over selection for constellation API chips. */
+  previewConnector?: MarkKey | null;
 }
 
-export function OnboardingCanvas({ step, selectedConnector }: OnboardingCanvasProps) {
-  const hasSelectedConnector = selectedConnector !== null && selectedConnector !== undefined;
-  const labels = hasSelectedConnector ? SELECTED_LABELS : DEFAULT_LABELS;
+export function OnboardingCanvas({
+  step,
+  selectedConnector = null,
+  previewConnector = null,
+}: OnboardingCanvasProps) {
+  const accentConnector = previewConnector ?? selectedConnector ?? null;
+  const labelSource = wireLabelsForConnector(accentConnector);
+  const labels = [...labelSource];
+  const connectorStateAttr =
+    selectedConnector != null ? "selected" : accentConnector != null ? "preview" : "none";
 
   const wires = NODE_LIST.map((n, i) => {
     const dx = HUB.x - n.x;
@@ -106,7 +100,7 @@ export function OnboardingCanvas({ step, selectedConnector }: OnboardingCanvasPr
     <div
       className="oc-stage"
       data-step={step}
-      data-connector-state={hasSelectedConnector ? "selected" : "none"}
+      data-connector-state={connectorStateAttr}
     >
       <div className="oc-glow" aria-hidden="true" />
       <div className="oc-grid" aria-hidden="true" />
@@ -189,7 +183,7 @@ export function OnboardingCanvas({ step, selectedConnector }: OnboardingCanvasPr
 
         {step >= 3 && (
           <g
-            key={`labels-${hasSelectedConnector ? "selected" : "none"}-${step}`}
+            key={`labels-${accentConnector ?? "none"}-${step}`}
             className="oc-wire-labels"
           >
             {wires.map((w) => {

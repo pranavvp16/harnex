@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import yaml
@@ -38,11 +38,14 @@ def _hash_bytes(data: bytes) -> str:
 def _decode(data: bytes) -> dict[str, Any]:
     text = data.decode("utf-8", errors="replace").lstrip()
     if text.startswith("{") or text.startswith("["):
-        return json.loads(text)
+        loaded = json.loads(text)
+        if not isinstance(loaded, dict):
+            raise SpecValidationError("spec root must be a mapping")
+        return cast(dict[str, Any], loaded)
     parsed = yaml.safe_load(text)
     if not isinstance(parsed, dict):
         raise SpecValidationError("spec root must be a mapping")
-    return parsed
+    return cast(dict[str, Any], parsed)
 
 
 def _detect_format(doc: dict[str, Any]) -> str:
@@ -181,12 +184,12 @@ def parse_uploaded_spec(data: bytes) -> LoadedSpec:
 async def fetch_spec_for_connection(connection: ConnectionConfig) -> LoadedSpec | None:
     """Used by GenericConnector and any connector that defers to user-supplied
     spec sources. Returns None for bare-URL connections without a spec."""
+    # Uploaded specs are persisted on the connection row; prefer them over a
+    # spec_url because the user explicitly chose upload mode.
+    if connection.spec_blob:
+        return parse_uploaded_spec(connection.spec_blob)
     if connection.spec_url:
         return await fetch_spec_from_url(connection.spec_url)
-    # Spec uploads are persisted to blob storage; loading from blob is wired up
-    # in the connections route once Azure Blob is configured. For tests, the
-    # connection should be created with `spec_url` pointing at a fixture file or
-    # the in-process fake fetcher should be patched.
     return None
 
 

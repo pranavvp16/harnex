@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -13,6 +14,8 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Index,
+    Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -21,6 +24,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from harnex_api.config import get_settings
 from harnex_api.db.session import Base
 
 
@@ -79,6 +83,13 @@ class ExecutionMode(enum.StrEnum):
     structured = "structured"
 
 
+class SpecSourceType(enum.StrEnum):
+    builtin = "builtin"
+    openapi_url = "openapi_url"
+    openapi_upload = "openapi_upload"
+    bare_url = "bare_url"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -102,8 +113,6 @@ class Tenant(Base, TimestampMixin):
     )
     keycloak_org_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     infisical_project_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    azure_search_index: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    azure_blob_container: Mapped[str | None] = mapped_column(String(128), nullable=True)
     monthly_execution_quota: Mapped[int] = mapped_column(BigInteger, default=10_000, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -147,7 +156,7 @@ class Connector(Base, TimestampMixin):
     is_builtin: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     default_base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     supported_auth: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
-    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+    metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict, nullable=False)
 
 
 class Connection(Base, TimestampMixin):
@@ -173,17 +182,113 @@ class Connection(Base, TimestampMixin):
     base_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     spec_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     spec_blob_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    spec_blob: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     spec_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    spec_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connector_specs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     auth_flow: Mapped[AuthFlow] = mapped_column(Enum(AuthFlow, name="auth_flow"))
-    auth_config: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    auth_config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     endpoint_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
     last_indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     tenant: Mapped[Tenant] = relationship(back_populates="connections")
+    spec: Mapped[ConnectorSpec | None] = relationship()
     executions: Mapped[list[Execution]] = relationship(
         back_populates="connection", cascade="all, delete-orphan"
     )
+
+
+class ConnectorSpec(Base, TimestampMixin):
+    """Cross-tenant catalog of indexed OpenAPI specs.
+
+    Keyed on `(source_type, source_key, spec_hash, embedding_model, embedding_dim)`
+    so identical specs share one row per embedding space. Switching models or
+    dimensions creates a new catalog row (same spec hash, different vectors)
+    without colliding on the unique key. When upstream changes, `spec_hash`
+    differs; the old row is GC'd once no connection points at it.
+    """
+
+    __tablename__ = "connector_specs"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_type",
+            "source_key",
+            "spec_hash",
+            "embedding_model",
+            "embedding_dim",
+            name="uq_connector_specs_identity",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    source_type: Mapped[SpecSourceType] = mapped_column(
+        Enum(SpecSourceType, name="spec_source_type"), nullable=False
+    )
+    source_key: Mapped[str] = mapped_column(String(2048), nullable=False)
+    spec_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    embedding_dim: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    raw_spec: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    indexed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    chunks: Mapped[list[OperationChunk]] = relationship(
+        back_populates="spec", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class OperationChunk(Base):
+    """One row per OpenAPI operation, keyed on the spec catalog (not tenant).
+
+    Each row carries the embedding vector and a generated tsvector for hybrid
+    semantic + keyword search. Tenant scoping happens at query time via the
+    JOIN through `connections.spec_id`, so multiple tenants can share these
+    rows without leakage.
+    """
+
+    __tablename__ = "operation_chunks"
+    __table_args__ = (
+        Index("ix_operation_chunks_spec", "spec_id"),
+        # vector + tsvector indexes are added in the alembic migration since
+        # SQLAlchemy doesn't have a clean way to express HNSW + GIN parameters.
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    spec_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connector_specs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    operation_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    method: Mapped[str] = mapped_column(String(16), nullable=False)
+    path: Mapped[str] = mapped_column(String(2048), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    semantic_tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    auth_scheme_keys: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    parameters: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    request_body: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    responses: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
+    schema_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(get_settings().openai_embedding_dim), nullable=False
+    )
+    # `search_tsv tsvector GENERATED ALWAYS AS (...) STORED` lives in the DB
+    # only — the migration creates it. Postgres rejects any INSERT/UPDATE that
+    # specifies a value for a generated column, so we deliberately don't map
+    # it on the ORM. Hybrid search reads it directly via raw SQL in
+    # `services/search/vector_search.py`.
+
+    spec: Mapped[ConnectorSpec] = relationship(back_populates="chunks")
 
 
 class Execution(Base, TimestampMixin):
@@ -209,8 +314,8 @@ class Execution(Base, TimestampMixin):
     operation_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
     method: Mapped[str | None] = mapped_column(String(16), nullable=True)
     path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    request_summary: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    response_summary: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    request_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    response_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     error_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -281,7 +386,7 @@ class OAuthState(Base, TimestampMixin):
     connector_key: Mapped[str] = mapped_column(String(64), nullable=False)
     code_verifier: Mapped[str | None] = mapped_column(String(256), nullable=True)
     redirect_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
-    payload: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -293,10 +398,13 @@ __all__ = [
     "ConnectionMode",
     "ConnectionStatus",
     "Connector",
+    "ConnectorSpec",
     "Execution",
     "ExecutionMode",
     "ExecutionStatus",
     "OAuthState",
+    "OperationChunk",
+    "SpecSourceType",
     "Tenant",
     "TenantMembership",
     "TenantPlan",

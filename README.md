@@ -8,7 +8,7 @@ Multitenant backend that lets agents discover and execute against any HTTP API. 
 - Postgres + SQLAlchemy 2.0 async + Alembic
 - Keycloak (single `harnex` realm; tenant = organization/group) for console users
 - Infisical for third-party platform secrets
-- Azure OpenAI embeddings + Azure AI Search for semantic similarity
+- OpenAI embeddings + Postgres pgvector (hybrid semantic + keyword search)
 - Blaxel sandbox for code-mode execution
 
 ## Local dev

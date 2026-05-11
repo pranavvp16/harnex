@@ -66,6 +66,7 @@ class ConnectionTestResponse(ApiModel):
     error_kind: str | None
     message: str
     duration_ms: int
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [

@@ -34,7 +34,7 @@ class LinearConnector(BaseConnector):
     test_endpoint: ClassVar[ConnectorTestEndpoint] = ConnectorTestEndpoint(
         method="POST",
         path="/graphql",
-        body={"query": "query { viewer { id } }"},
+        body={"query": "query { viewer { id name } }"},
     )
 
     async def load_spec(self, connection: ConnectionConfig) -> LoadedSpec | None:

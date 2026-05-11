@@ -50,21 +50,14 @@ class AppSettings(BaseSettings):
     infisical_client_id: SecretStr = Field(SecretStr(""), alias="INFISICAL_CLIENT_ID")
     infisical_client_secret: SecretStr = Field(SecretStr(""), alias="INFISICAL_CLIENT_SECRET")
 
-    azure_openai_endpoint: str = Field("", alias="AZURE_OPENAI_ENDPOINT")
-    azure_openai_api_key: SecretStr = Field(SecretStr(""), alias="AZURE_OPENAI_API_KEY")
-    azure_openai_api_version: str = Field("2024-10-21", alias="AZURE_OPENAI_API_VERSION")
-    azure_openai_embedding_deployment: str = Field(
-        "text-embedding-3-small", alias="AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+    # OpenAI embeddings (direct — not Azure). text-embedding-3-large supports MRL
+    # truncation via the `dimensions` parameter; 1536d gives best-in-class quality at
+    # half the storage of full 3072d and faster pgvector HNSW.
+    openai_api_key: SecretStr = Field(SecretStr(""), alias="HARNEX_OPENAI_API_KEY")
+    openai_embedding_model: str = Field(
+        "text-embedding-3-large", alias="HARNEX_OPENAI_EMBEDDING_MODEL"
     )
-    azure_openai_embedding_dim: int = Field(1536, alias="AZURE_OPENAI_EMBEDDING_DIM")
-
-    azure_search_endpoint: str = Field("", alias="AZURE_SEARCH_ENDPOINT")
-    azure_search_api_key: SecretStr = Field(SecretStr(""), alias="AZURE_SEARCH_API_KEY")
-    azure_search_index_prefix: str = Field("harnex", alias="AZURE_SEARCH_INDEX_PREFIX")
-
-    azure_storage_connection_string: SecretStr = Field(
-        SecretStr(""), alias="AZURE_STORAGE_CONNECTION_STRING"
-    )
+    openai_embedding_dim: int = Field(1536, alias="HARNEX_OPENAI_EMBEDDING_DIM")
 
     blaxel_base_url: str = Field("", alias="BLAXEL_BASE_URL")
     blaxel_api_key: SecretStr = Field(SecretStr(""), alias="BLAXEL_API_KEY")
@@ -92,9 +85,6 @@ class AppSettings(BaseSettings):
     @property
     def is_local(self) -> bool:
         return self.env == "local"
-
-    def tenant_search_index(self, tenant_id: str) -> str:
-        return f"{self.azure_search_index_prefix}-{tenant_id}"
 
 
 @lru_cache(maxsize=1)

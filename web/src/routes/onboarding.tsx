@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import type { MarkKey } from "@/components/onboarding/marks";
 import { ConnectionStep } from "@/components/onboarding/ConnectionStep";
 import { DoneStep } from "@/components/onboarding/DoneStep";
 import {
@@ -16,7 +17,6 @@ import { OrgStep } from "@/components/onboarding/OrgStep";
 import { ProfileStep } from "@/components/onboarding/ProfileStep";
 import { SignInStep, type Provider } from "@/components/onboarding/SignInStep";
 import { Stepper } from "@/components/onboarding/Stepper";
-import { POPULAR_CONNECTIONS } from "@/components/onboarding/types";
 import type {
   ConnectionState,
   OrgState,
@@ -35,7 +35,7 @@ export const Route = createFileRoute("/onboarding")({
 
 const INITIAL_PROFILE: ProfileState = { fullName: "", handle: "" };
 const INITIAL_ORG: OrgState = { orgName: "", teamSize: "2-10" };
-const INITIAL_CONN: ConnectionState = { connection: null };
+const INITIAL_CONN: ConnectionState = { connection: null, displayName: "" };
 const INITIAL_EMAIL_REG: EmailRegisterValue = { fullName: "", email: "", password: "" };
 const INITIAL_EMAIL_SIGNIN: EmailSignInValue = { email: "", password: "" };
 
@@ -54,6 +54,7 @@ function OnboardingPage() {
   const [emailSignIn, setEmailSignIn] = useState<EmailSignInValue>(INITIAL_EMAIL_SIGNIN);
   const [org, setOrg] = useState<OrgState>(INITIAL_ORG);
   const [conn, setConn] = useState<ConnectionState>(INITIAL_CONN);
+  const [connHover, setConnHover] = useState<MarkKey | null>(null);
 
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
@@ -61,13 +62,18 @@ function OnboardingPage() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [orgBusy, setOrgBusy] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
-  const [connBusy, setConnBusy] = useState(false);
-  const [connError, setConnError] = useState<string | null>(null);
+  // ConnectionStep is preference-only now; no async work happens on continue.
+  const connBusy = false;
+  const connError: string | null = null;
   const [createdSlug, setCreatedSlug] = useState<string>("");
   const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
 
   const next = () => setStep((s) => Math.min(4, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
+
+  useEffect(() => {
+    if (step !== 3) setConnHover(null);
+  }, [step]);
 
   // Only fires once we know auth has settled. If the user lands on /onboarding
   // already authenticated (e.g. Google/GitHub callback), skip past SignInStep
@@ -187,29 +193,12 @@ function OnboardingPage() {
   };
 
   const handleConnectionContinue = async () => {
-    if (!conn.connection) {
-      next();
-      return;
-    }
-    setConnError(null);
-    setConnBusy(true);
-    try {
-      const opt = POPULAR_CONNECTIONS.find((c) => c.key === conn.connection);
-      const builtinKeys = new Set(["github"]);
-      const isBuiltin = opt && builtinKeys.has(opt.key);
-      await api.createConnection({
-        name: opt?.name ?? "First connection",
-        mode: isBuiltin ? "builtin" : "bare_url",
-        connector_key: isBuiltin ? opt?.key ?? null : null,
-        base_url: isBuiltin ? null : "https://example.com",
-        auth_flow: "none",
-      });
-      next();
-    } catch (err) {
-      setConnError(messageOf(err, "Couldn't add that connector. You can add one from Connections later."));
-    } finally {
-      setConnBusy(false);
-    }
+    // Onboarding only records the user's connector preference; we do NOT create
+    // a Connection row here. Auto-creating a connection with auth_flow="none"
+    // produces a half-configured row (indexable but not executable) that looks
+    // identical to fully-configured ones in the UI — confusing and worthless.
+    // The user finishes setup on /connections/new where credentials are required.
+    next();
   };
 
   const handleEnter = () => {
@@ -293,6 +282,8 @@ function OnboardingPage() {
             <ConnectionStep
               value={conn}
               onChange={setConn}
+              previewConnector={connHover}
+              onHoverConnectorChange={setConnHover}
               onContinue={() => void handleConnectionContinue()}
               onBack={back}
               onSkip={next}
@@ -329,7 +320,11 @@ function OnboardingPage() {
       </section>
 
       <aside className="ob-right" aria-hidden="true">
-        <OnboardingCanvas step={step} selectedConnector={conn.connection} />
+        <OnboardingCanvas
+          step={step}
+          selectedConnector={conn.connection}
+          previewConnector={connHover}
+        />
       </aside>
     </div>
   );

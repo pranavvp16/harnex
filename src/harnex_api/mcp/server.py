@@ -25,6 +25,7 @@ from harnex_api.services.execute.operation import ExecuteParams
 from harnex_api.services.execute.runner import (
     ConnectionMissingError,
     ConnectionNotReadyError,
+    execute_code,
     execute_structured,
 )
 from harnex_api.services.search.service import SearchService
@@ -116,15 +117,41 @@ def create_mcp_app() -> FastMCP:
         query: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: Any = None,
+        mode: str = "structured",
     ) -> dict[str, Any]:
-        """Invoke a single API operation on a tenant connection.
+        """Invoke any operation on a connected API — read, write, mutate.
 
-        `operation_id` and `connection_id` come from a prior `search` call.
-        Path params, query params, headers, and body are keyed by parameter
-        name as defined in the operation's OpenAPI spec.
+        Use this to take actions on the user's behalf against any connector
+        (`github`, `jenkins`, custom OpenAPI, bare URLs). Auth, base URLs, and
+        request shaping come from the stored `Connection`; you only supply the
+        operation params. Pair with `search` to discover `operation_id`s.
 
-        Returns `{status, http_status, body, error_kind?, error_message?,
-        duration_ms}`. Status is one of `success`, `error`, or `timeout`.
+        Inputs:
+          - `connection_id`, `operation_id`: from a prior `search` hit.
+          - `path_params`: values for `{...}` placeholders in the operation path
+            (e.g. `{"owner": "octocat", "repo": "hello-world"}`).
+          - `query`: query-string parameters.
+          - `headers`: extra request headers (auth headers are injected
+            automatically — do not duplicate).
+          - `body`: JSON request body for POST/PUT/PATCH operations.
+          - `mode`: execution path.
+            * `"structured"` (default): server-side `httpx` call. Fastest, most
+              reliable. Use for the vast majority of calls.
+            * `"code"`: the request runs as a Node.js `fetch` script inside an
+              isolated Blaxel sandbox. Use when you need sandboxed network
+              egress (e.g. running untrusted webhooks, verifying behavior under
+              a sandboxed runtime, or adding sandbox-side validation in future
+              iterations). Functionally equivalent to structured for plain HTTP
+              calls, but ~1s slower due to sandbox warm-up.
+
+        Returns `{status, http_status, body, headers, error_kind?,
+        error_message?, duration_ms, operation_id, method, path}`. `status` is
+        one of `success`, `error`, or `timeout`. The remote API's response body
+        is returned verbatim under `body`; non-2xx responses set `error_kind`
+        to `http_<code>` but still include the body so you can diagnose.
+
+        Both modes write a row to the audit log (`executions`) keyed on tenant,
+        connection, and api_key — every action is traceable.
         """
         caller = _require_caller()
         try:
@@ -141,6 +168,12 @@ def create_mcp_app() -> FastMCP:
                 "error_kind": "scope_forbidden",
                 "error_message": "this api key is scoped to a subset of connections",
             }
+        if mode not in ("structured", "code"):
+            return {
+                "status": "error",
+                "error_kind": "invalid_mode",
+                "error_message": f"mode must be 'structured' or 'code', got {mode!r}",
+            }
         params = ExecuteParams(
             path=path_params or {},
             query=query or {},
@@ -149,14 +182,24 @@ def create_mcp_app() -> FastMCP:
         )
         try:
             async with session_scope() as session:
-                outcome = await execute_structured(
-                    session,
-                    tenant_id=caller.tenant_id,
-                    connection_id=conn_uuid,
-                    operation_id=operation_id,
-                    params=params,
-                    api_key_id=caller.api_key_id,
-                )
+                if mode == "code":
+                    outcome = await execute_code(
+                        session,
+                        tenant_id=caller.tenant_id,
+                        connection_id=conn_uuid,
+                        operation_id=operation_id,
+                        params=params,
+                        api_key_id=caller.api_key_id,
+                    )
+                else:
+                    outcome = await execute_structured(
+                        session,
+                        tenant_id=caller.tenant_id,
+                        connection_id=conn_uuid,
+                        operation_id=operation_id,
+                        params=params,
+                        api_key_id=caller.api_key_id,
+                    )
         except ConnectionMissingError:
             return {
                 "status": "error",
