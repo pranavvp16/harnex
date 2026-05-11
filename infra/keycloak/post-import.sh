@@ -80,8 +80,19 @@ fi
 # "Keycloak create user failed (403)". The role can't be baked into the realm
 # import JSON because Keycloak only creates the service-account user lazily.
 echo "==> Granting realm-management.manage-users to harnex-admin-cli SA"
-kcadm add-roles -r "${REALM}" \
+if ! GRANT_OUTPUT=$(kcadm add-roles -r "${REALM}" \
   --uusername "service-account-harnex-admin-cli" \
-  --cclientid realm-management --rolename manage-users 2>&1 | grep -v "already exists" || true
+  --cclientid realm-management --rolename manage-users 2>&1); then
+  case "${GRANT_OUTPUT}" in
+    *"already exists"*)
+      echo "==> realm-management.manage-users already granted"
+      ;;
+    *)
+      printf '%s\n' "${GRANT_OUTPUT}" >&2
+      echo "!! failed to grant realm-management.manage-users to harnex-admin-cli SA" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 echo "Done. SPA should now redirect through ${PUBLIC_BASE}/auth/realms/${REALM}/..."
