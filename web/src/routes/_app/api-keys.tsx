@@ -362,14 +362,15 @@ function ApiKeysPage() {
                 aria-live="polite"
                 aria-label="Your new API key"
                 style={{
-                  background: "var(--ink)",
-                  color: "#FAFAF7",
                   padding: 14,
                   borderRadius: 6,
                   display: "flex",
                   alignItems: "center",
                   flexWrap: "wrap",
                   gap: 10,
+                  border: "1px solid var(--border-strong)",
+                  background: "#0f0f12",
+                  color: "var(--logo-ink-on-dark)",
                 }}
               >
                 <span className="mono" style={{ flex: 1, fontSize: 12.5, wordBreak: "break-all" }}>
@@ -380,9 +381,9 @@ function ApiKeysPage() {
                   type="button"
                   className="btn btn-ghost btn-sm"
                   style={{
-                    background: "rgba(255,255,255,0.08)",
-                    color: "#fff",
-                    borderColor: "rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.12)",
+                    color: "var(--logo-ink-on-dark)",
+                    borderColor: "rgba(255,255,255,0.28)",
                   }}
                   onClick={copyToken}
                 >
