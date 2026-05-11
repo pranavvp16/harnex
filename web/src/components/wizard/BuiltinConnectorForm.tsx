@@ -44,8 +44,7 @@ function useEmitState<T extends Record<string, unknown>>(
       onStateChange(build(values as T, false));
     });
     return () => sub.unsubscribe();
-     
-  }, [form, onStateChange]);
+  }, [build, form, onStateChange]);
 }
 
 function FormSection({ title, children }: { title: string; children: ReactNode }) {
