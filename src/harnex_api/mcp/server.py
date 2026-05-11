@@ -262,10 +262,21 @@ def _extract_bearer(request: Request) -> str | None:
     return token.strip()
 
 
-_AUTH_HINT = (
-    "Authentication required. Create an API key at http://localhost:5173/api-keys "
-    "and pass Authorization: Bearer hnx..."
-)
+def _auth_hint() -> str:
+    """Human-oriented URL where users can issue MCP API keys.
+
+    Uses `HARNEX_PUBLIC_HOST` when set (production / staging); otherwise the
+    local Vite dev default so local MCP runs stay actionable.
+    """
+    settings = get_settings()
+    host = settings.public_host.strip()
+    base_url = f"https://{host}" if host else "http://localhost:5173"
+    return (
+        f"Authentication required. Create an API key at {base_url}/api-keys "
+        "and pass Authorization: Bearer hnx..."
+    )
+
+
 # JSON-RPC application error code reserved for auth failures on this surface.
 _JSONRPC_AUTH_ERROR_CODE = -32001
 
@@ -285,7 +296,14 @@ async def _drain_body(receive: Any) -> bytes:
 
 
 def _receive_replay(body: bytes) -> Any:
-    """ASGI receive that replays a captured body once, then disconnects."""
+    """ASGI receive that replays a captured body once, then disconnects.
+
+    Only suitable for short-circuit error responses where we need the
+    body to extract the JSON-RPC ID but then immediately close the
+    connection.  Must NOT be used for streaming responses (SSE) because
+    the second call returns ``http.disconnect`` which tells the server
+    the client has gone away — killing any in-flight SSE stream.
+    """
 
     sent = False
 
@@ -334,6 +352,15 @@ def build_streamable_http_app() -> Any:
     On auth failure returns a JSON-RPC 2.0 error envelope (status 401) so MCP
     clients see a structured, self-documenting error instead of an empty body.
 
+    **Important**: on the happy path the original ASGI ``receive`` is forwarded
+    to the inner app untouched.  We only drain-and-replay the body for short-
+    circuit error responses where we need it to extract the JSON-RPC request ID.
+    Draining-and-replaying on the success path would cause ``receive_replay`` to
+    emit ``http.disconnect`` on its second call, which tells
+    ``EventSourceResponse`` (the SSE transport) that the client has gone away
+    — killing the stream before any events are written.  Passing the real
+    ``receive`` through preserves proper disconnect detection.
+
     Mounted under `/mcp` by `harnex_api.main`.
     """
     mcp = create_mcp_app()
@@ -348,7 +375,7 @@ def build_streamable_http_app() -> Any:
         if not token:
             body = await _drain_body(receive)
             receive_replay = _receive_replay(body)
-            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _AUTH_HINT)(
+            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _auth_hint())(
                 scope, receive_replay, send
             )
             return
@@ -358,11 +385,19 @@ def build_streamable_http_app() -> Any:
         except ApiKeyAuthError as exc:
             body = await _drain_body(receive)
             receive_replay = _receive_replay(body)
-            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), f"{exc}. {_AUTH_HINT}")(
-                scope, receive_replay, send
-            )
+            await _jsonrpc_auth_error(
+                _extract_jsonrpc_id(body), f"{exc}. {_auth_hint()}"
+            )(scope, receive_replay, send)
             return
 
+        # -- Happy path: forward the original receive to the inner app. --------
+        # We deliberately do NOT drain-and-replay the body here. The MCP
+        # streamable-HTTP transport uses EventSourceResponse (SSE), which calls
+        # receive() after reading the request body to detect client disconnects.
+        # Our _receive_replay returns http.disconnect on its second call, which
+        # tells the SSE writer the client has gone away and kills the stream
+        # before any events are written (empty body → "no tools visible").
+        # Passing the real receive preserves proper disconnect detection.
         ctx_token = _caller_context.set(
             _CallerContext(
                 api_key_id=auth.api_key_id,
@@ -372,9 +407,7 @@ def build_streamable_http_app() -> Any:
             )
         )
         try:
-            body = await _drain_body(receive)
-            receive_replay = _receive_replay(body)
-            await inner(scope, receive_replay, send)
+            await inner(scope, receive, send)
         finally:
             _caller_context.reset(ctx_token)
 
