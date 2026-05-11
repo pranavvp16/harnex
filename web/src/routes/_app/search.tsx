@@ -51,7 +51,7 @@ function SearchPage() {
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 14, height: "100%" }}>
+    <div className="responsive-split" style={{ gap: 14, height: "100%" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
         <div className="card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ position: "relative" }}>
@@ -67,9 +67,9 @@ function SearchPage() {
               style={{ height: 40, paddingLeft: 34, fontSize: 14 }}
             />
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="responsive-toolbar">
             <select
-              className="select"
+              className="select toolbar-control"
               style={{ width: 180 }}
               value={connectorFilter}
               onChange={(e) => setConnectorFilter(e.target.value)}
@@ -81,7 +81,7 @@ function SearchPage() {
                 </option>
               ))}
             </select>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div className="toolbar-control" style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 12, color: "var(--muted)" }}>top_k</span>
               <input
                 type="number"
@@ -93,7 +93,7 @@ function SearchPage() {
                 style={{ width: 64 }}
               />
             </div>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button className="btn btn-primary btn-sm" onClick={handleSearch} disabled={search.isPending}>
               {Ic.search} Search
             </button>
@@ -179,12 +179,12 @@ function SearchPage() {
                     borderColor: i === 0 ? "var(--accent-border)" : "var(--border)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <MethodBadge method={r.method} />
-                    <span className="mono" style={{ fontSize: 12.5, fontWeight: 500 }}>
+                    <span className="mono min-w-0" style={{ fontSize: 12.5, fontWeight: 500, wordBreak: "break-word" }}>
                       {r.path}
                     </span>
-                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                       <span
                         style={{
                           display: "inline-flex",
@@ -214,8 +214,8 @@ function SearchPage() {
                   <div style={{ fontSize: 12.5, color: "var(--slate)", marginTop: 4 }}>
                     {r.summary}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
+                    <span className="mono min-w-0" style={{ fontSize: 11, color: "var(--muted)", wordBreak: "break-word" }}>
                       op: {r.operation_id}
                     </span>
                     <span style={{ marginLeft: "auto" }}>

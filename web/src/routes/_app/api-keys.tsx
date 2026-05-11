@@ -135,8 +135,8 @@ function ApiKeysPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {!showNew ? (
         <>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <div>
+          <div className="responsive-toolbar" style={{ alignItems: "flex-start" }}>
+            <div className="toolbar-search">
               <h2 className="h-display" style={{ fontSize: 20, margin: 0, fontWeight: 500 }}>
                 API <span className="serif-i">keys</span>
               </h2>
@@ -144,7 +144,7 @@ function ApiKeysPage() {
                 Keys authenticate your agents and runtime against the Harnex MCP server.
               </p>
             </div>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button
               className="btn btn-primary btn-sm"
               onClick={() => {
@@ -156,7 +156,7 @@ function ApiKeysPage() {
             </button>
           </div>
 
-          <div className="card" style={{ overflow: "hidden" }}>
+          <div className="card table-scroll">
             <table className="tbl">
               <thead>
                 <tr>
@@ -228,12 +228,12 @@ function ApiKeysPage() {
           </div>
         </>
       ) : (
-        <div className="card" style={{ padding: 20, maxWidth: 640 }}>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
+        <div className="card" style={{ padding: 20, maxWidth: 640, width: "100%" }}>
+          <div className="responsive-toolbar" style={{ alignItems: "center", marginBottom: 14 }}>
             <h2 className="h-display" style={{ fontSize: 20, margin: 0, fontWeight: 500 }}>
               Issue new key
             </h2>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button className="btn btn-ghost btn-sm" onClick={closeNew} aria-label="Close">
               {Ic.x}
             </button>
@@ -335,8 +335,8 @@ function ApiKeysPage() {
                 </AlertBox>
               )}
 
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <span style={{ flex: 1 }} />
+              <div className="wizard-actions" style={{ marginTop: 4 }}>
+                <span className="toolbar-spacer" />
                 <button className="btn btn-ghost" onClick={closeNew}>
                   Cancel
                 </button>
@@ -362,13 +362,15 @@ function ApiKeysPage() {
                 aria-live="polite"
                 aria-label="Your new API key"
                 style={{
-                  background: "var(--ink)",
-                  color: "#FAFAF7",
                   padding: 14,
                   borderRadius: 6,
                   display: "flex",
                   alignItems: "center",
+                  flexWrap: "wrap",
                   gap: 10,
+                  border: "1px solid var(--border-strong)",
+                  background: "#0f0f12",
+                  color: "var(--logo-ink-on-dark)",
                 }}
               >
                 <span className="mono" style={{ flex: 1, fontSize: 12.5, wordBreak: "break-all" }}>
@@ -379,9 +381,9 @@ function ApiKeysPage() {
                   type="button"
                   className="btn btn-ghost btn-sm"
                   style={{
-                    background: "rgba(255,255,255,0.08)",
-                    color: "#fff",
-                    borderColor: "rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.12)",
+                    color: "var(--logo-ink-on-dark)",
+                    borderColor: "rgba(255,255,255,0.28)",
                   }}
                   onClick={copyToken}
                 >
@@ -410,8 +412,8 @@ function ApiKeysPage() {
                   </div>
                 </div>
               )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ flex: 1 }} />
+              <div className="wizard-actions">
+                <span className="toolbar-spacer" />
                 <button className="btn btn-primary" onClick={closeNew}>
                   Done
                 </button>

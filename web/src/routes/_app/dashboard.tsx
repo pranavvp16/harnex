@@ -53,7 +53,7 @@ function Dashboard() {
       )}
 
       {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div className="responsive-grid-3" style={{ gap: 12 }}>
         <KpiCard
           label="Connections"
           value={connections.isLoading ? "—" : total}
@@ -76,9 +76,9 @@ function Dashboard() {
       </div>
 
       {/* Two-col */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
+      <div className="responsive-split" style={{ gap: 12 }}>
         {/* Recent executions */}
-        <div className="card">
+        <div className="card" style={{ minWidth: 0 }}>
           <div
             style={{
               padding: "12px 16px",
@@ -104,42 +104,44 @@ function Dashboard() {
             </div>
           )}
           {recent.data && recent.data.items.length > 0 && (
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Operation</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: "right" }}>Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.data.items.map((e) => (
-                  <tr key={e.id} className="row-hover">
-                    <td className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                      {new Date(e.created_at).toLocaleTimeString()}
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {e.method && <MethodBadge method={e.method} />}
-                        <span className="mono" style={{ fontSize: 12 }}>
-                          {e.path ?? e.operation_id ?? "—"}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <StatusBadge status={e.status} />
-                    </td>
-                    <td
-                      className="mono"
-                      style={{ fontSize: 11.5, color: "var(--muted)", textAlign: "right" }}
-                    >
-                      {e.duration_ms != null ? `${e.duration_ms}ms` : "—"}
-                    </td>
+            <div className="table-scroll">
+              <table className="tbl tbl-compact">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Operation</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: "right" }}>Duration</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {recent.data.items.map((e) => (
+                    <tr key={e.id} className="row-hover">
+                      <td className="mono" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                        {new Date(e.created_at).toLocaleTimeString()}
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {e.method && <MethodBadge method={e.method} />}
+                          <span className="mono" style={{ fontSize: 12 }}>
+                            {e.path ?? e.operation_id ?? "—"}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusBadge status={e.status} />
+                      </td>
+                      <td
+                        className="mono"
+                        style={{ fontSize: 11.5, color: "var(--muted)", textAlign: "right" }}
+                      >
+                        {e.duration_ms != null ? `${e.duration_ms}ms` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
@@ -152,7 +154,7 @@ function Dashboard() {
                 <button className="btn btn-ghost btn-sm">Manage {Ic.arrow}</button>
               </Link>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            <div className="responsive-grid-3" style={{ gap: 8 }}>
               <HealthBox label="Ready" count={counts.ready} color="green" />
               <HealthBox label="Indexing" count={counts.indexing + counts.pending} color="amber" />
               <HealthBox label="Errored" count={counts.error} color="red" />

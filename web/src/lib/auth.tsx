@@ -159,7 +159,7 @@ function userFromTokenResponse(resp: KeycloakTokenResponse): User {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
-  const manager = useMemo(buildUserManager, []);
+  const manager = useMemo(() => buildUserManager(), []);
   const [user, setUser] = useState<User | null>(null);
   // env.devTenantId means a dev-mode build (no Keycloak). Real builds start
   // with no active tenant — we only set one once the user is signed in and
@@ -255,8 +255,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       manager.events.removeUserLoaded(onUserLoaded);
       manager.events.removeUserUnloaded(onUserUnloaded);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on manager init
-  }, [manager]);
+  }, [manager, setActiveTenantId]);
 
   const signIn = useCallback(
     async (opts: SignInOptions = {}) => {
