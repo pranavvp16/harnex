@@ -262,10 +262,21 @@ def _extract_bearer(request: Request) -> str | None:
     return token.strip()
 
 
-_AUTH_HINT = (
-    "Authentication required. Create an API key at http://localhost:5173/api-keys "
-    "and pass Authorization: Bearer hnx..."
-)
+def _auth_hint() -> str:
+    """Human-oriented URL where users can issue MCP API keys.
+
+    Uses `HARNEX_PUBLIC_HOST` when set (production / staging); otherwise the
+    local Vite dev default so local MCP runs stay actionable.
+    """
+    settings = get_settings()
+    host = settings.public_host.strip()
+    base_url = f"https://{host}" if host else "http://localhost:5173"
+    return (
+        f"Authentication required. Create an API key at {base_url}/api-keys "
+        "and pass Authorization: Bearer hnx..."
+    )
+
+
 # JSON-RPC application error code reserved for auth failures on this surface.
 _JSONRPC_AUTH_ERROR_CODE = -32001
 
@@ -348,7 +359,7 @@ def build_streamable_http_app() -> Any:
         if not token:
             body = await _drain_body(receive)
             receive_replay = _receive_replay(body)
-            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _AUTH_HINT)(
+            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), _auth_hint())(
                 scope, receive_replay, send
             )
             return
@@ -358,9 +369,9 @@ def build_streamable_http_app() -> Any:
         except ApiKeyAuthError as exc:
             body = await _drain_body(receive)
             receive_replay = _receive_replay(body)
-            await _jsonrpc_auth_error(_extract_jsonrpc_id(body), f"{exc}. {_AUTH_HINT}")(
-                scope, receive_replay, send
-            )
+            await _jsonrpc_auth_error(
+                _extract_jsonrpc_id(body), f"{exc}. {_auth_hint()}"
+            )(scope, receive_replay, send)
             return
 
         ctx_token = _caller_context.set(
