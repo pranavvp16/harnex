@@ -118,7 +118,6 @@ function GithubForm({ onSubmit, submitting, embedded, onNameChange, onStateChang
       <Field label="Auth method" htmlFor="auth_flow">
         <Select id="auth_flow" {...form.register("auth_flow")}>
           <option value="bearer">Personal access token</option>
-          <option value="oauth_authcode">OAuth (sign in with GitHub)</option>
         </Select>
       </Field>
       {flow === "bearer" && (
@@ -150,6 +149,7 @@ function GithubForm({ onSubmit, submitting, embedded, onNameChange, onStateChang
 const jenkinsSchema = z.object({
   name: z.string().min(1, "Required"),
   base_url: z.string().url("Must be a URL"),
+  spec_url: z.string().url("Must be a valid URL"),
   auth_flow: z.enum(["basic", "bearer", "api_key_header"]),
   username: z.string().optional(),
   token: z.string().optional(),
@@ -167,7 +167,8 @@ function buildJenkinsState(values: JenkinsValues): WizardFormState {
     credentials.api_key = values.token;
   }
   const isUrl = /^https?:\/\//.test(values.base_url ?? "");
-  const valid = Boolean(values.name?.trim() && isUrl);
+  const isSpecUrl = /^https?:\/\//.test(values.spec_url ?? "");
+  const valid = Boolean(values.name?.trim() && isUrl && isSpecUrl);
   let secretSummary: string | null = null;
   if (values.auth_flow === "basic") {
     secretSummary = values.username
@@ -182,6 +183,7 @@ function buildJenkinsState(values: JenkinsValues): WizardFormState {
       mode: "builtin",
       connector_key: "jenkins",
       base_url: values.base_url,
+      spec_url: values.spec_url,
       auth_flow: values.auth_flow as AuthFlow,
       auth_config:
         values.auth_flow === "api_key_header" ? { header_name: "Authorization" } : {},
@@ -223,6 +225,14 @@ function JenkinsForm({ onSubmit, submitting, embedded, onNameChange, onStateChan
       </Field>
       <Field label="Base URL" htmlFor="base_url" error={form.formState.errors.base_url?.message}>
         <Input id="base_url" placeholder="https://jenkins.internal/" {...form.register("base_url")} />
+      </Field>
+      <Field
+        label="Spec URL"
+        htmlFor="spec_url"
+        hint="Required — URL to a Jenkins OpenAPI spec (e.g. /swagger.json via the Swagger plugin). If your cluster doesn't expose one, use the OpenAPI Upload mode instead."
+        error={form.formState.errors.spec_url?.message}
+      >
+        <Input id="spec_url" placeholder="https://jenkins.internal/swagger.json" {...form.register("spec_url")} />
       </Field>
       <Field label="Auth method" htmlFor="auth_flow">
         <Select id="auth_flow" {...form.register("auth_flow")}>
@@ -331,7 +341,6 @@ function GitLabForm({ onSubmit, submitting, embedded, onNameChange, onStateChang
         <Select id="auth_flow" {...form.register("auth_flow")}>
           <option value="bearer">Personal access token</option>
           <option value="api_key_header">PRIVATE-TOKEN header</option>
-          <option value="oauth_authcode">OAuth (sign in with GitLab)</option>
         </Select>
       </Field>
       {(flow === "bearer" || flow === "api_key_header") && (
@@ -445,7 +454,6 @@ function JiraForm({ onSubmit, submitting, embedded, onNameChange, onStateChange 
         <Select id="auth_flow" {...form.register("auth_flow")}>
           <option value="basic">Email + API token (basic)</option>
           <option value="bearer">Bearer token</option>
-          <option value="oauth_authcode">OAuth 2.0 (3LO)</option>
         </Select>
       </Field>
       {flow === "basic" && (
@@ -655,7 +663,6 @@ function LinearForm({ onSubmit, submitting, embedded, onNameChange, onStateChang
       <Field label="Auth method" htmlFor="auth_flow">
         <Select id="auth_flow" {...form.register("auth_flow")}>
           <option value="bearer">Personal API key</option>
-          <option value="oauth_authcode">OAuth (sign in with Linear)</option>
         </Select>
       </Field>
       {flow === "bearer" && (
@@ -737,7 +744,6 @@ function SlackForm({ onSubmit, submitting, embedded, onNameChange, onStateChange
       <Field label="Auth method" htmlFor="auth_flow">
         <Select id="auth_flow" {...form.register("auth_flow")}>
           <option value="bearer">Bot token</option>
-          <option value="oauth_authcode">OAuth (user token)</option>
         </Select>
       </Field>
       {flow === "bearer" && (

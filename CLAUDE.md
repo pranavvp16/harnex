@@ -11,7 +11,7 @@ Harnex is a multitenant backend that lets agents discover and execute against an
 ## Stack
 
 - **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 async, Alembic, Postgres, `uv` for deps
-- **Search:** Azure OpenAI embeddings + Azure AI Search (per-tenant index). Tests use deterministic fakes via `HARNEX_USE_FAKE_EMBEDDINGS` / `HARNEX_USE_FAKE_VECTOR_SEARCH`.
+- **Search:** Direct OpenAI embeddings (`text-embedding-3-large`, MRL-truncated to 1536d) + Postgres **pgvector** hybrid search (HNSW cosine + `tsvector`, fused with RRF). Shared `connector_specs` / `operation_chunks` catalog; tenant isolation at query time via JOIN through `connections.spec_id`. Tests use deterministic fakes via `HARNEX_USE_FAKE_EMBEDDINGS` / `HARNEX_USE_FAKE_VECTOR_SEARCH`.
 - **Auth:** Keycloak (single `harnex` realm; tenant = organization/group) for console users; tenant-scoped API keys for MCP/REST machine traffic
 - **Secrets:** Infisical (third-party platform credentials only — never put Harnex's own secrets here)
 - **Sandbox:** Blaxel (workspace runs `blaxel/node:latest`; sandbox name `harnex-execute`) for code-mode execution
@@ -38,7 +38,19 @@ docker compose up -d    # start everything
 - `INFISICAL_ENCRYPTION_KEY` must be **exactly 32 characters** (raw bytes, not hex). AES-256 needs 32 bytes; a 64-char hex string is 64 bytes and will crash Infisical's KMS init. Generate with `LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32`.
 - If Infisical fails with "Invalid key length" after changing `ENCRYPTION_KEY`, wipe its DB volume (`docker compose stop infisical infisical-db && docker compose rm -f infisical infisical-db && docker volume rm harnex_harnex_infisical_db`) and bring it back up.
 - `web/Dockerfile` pins `pnpm@9` to match the lockfile format. Do not bump to `pnpm@latest` — pnpm 10 changed its build-script security model and blocks esbuild, causing the web build to fail.
-- When Infisical credentials (`INFISICAL_CLIENT_ID` + `INFISICAL_CLIENT_SECRET` + `INFISICAL_PROJECT_ID`) are not set, the API falls back to `InMemoryVault` — secrets are lost on restart. Fine for smoke-testing; not for persisting connections.
+- When Infisical credentials (`INFISICAL_CLIENT_ID` + `INFISICAL_CLIENT_SECRET` + `INFISICAL_PROJECT_ID`) are not set, the API in `local`/`dev` falls back to `InMemoryVault` and emits a `vault_not_persistent` WARN log — secrets are wiped on restart. In `staging`/`prod` the API refuses to start until those three envs are populated. Fill them and run `uv run python scripts/infisical_smoke.py` to verify wiring.
+
+**Infisical setup (self-host, one-time).**
+1. `http://localhost:8090/admin/signup` — create an admin account.
+2. Create a project; copy its ID into `INFISICAL_PROJECT_ID`.
+3. Project → Access Control → Machine Identities → add a Universal Auth identity. Copy `Client ID` / `Client Secret` into `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET`.
+4. `docker compose restart api` → log line should now say `vault backend=infisical`. Run `uv run python scripts/infisical_smoke.py` to round-trip a throwaway secret.
+
+**Moving to Infisical Cloud.** No code changes — same `/api/v3/secrets/raw` API and Universal Auth machine-identity flow.
+1. Create the project on `app.infisical.com` (US) or `eu.infisical.com` (EU); the URL determines data residency.
+2. Add a Machine Identity (Universal Auth); copy Client ID + Secret.
+3. In `.env`: set `INFISICAL_BASE_URL=https://app.infisical.com` (or eu), then `INFISICAL_PROJECT_ID` / `INFISICAL_CLIENT_ID` / `INFISICAL_CLIENT_SECRET` from the Cloud project.
+4. Restart the API and re-run the smoke script. Connections created against self-host don't migrate automatically — recreate them after the cutover.
 
 ### Backend (run from repo root, non-docker)
 
@@ -70,7 +82,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-`tests/conftest.py` forces fake embeddings / fake vector search and sets a dummy `DATABASE_URL`, so `tests/unit` runs without Postgres / Azure / Infisical / Keycloak. Integration tests under `tests/integration` may still hit Postgres — check the file before assuming.
+`tests/conftest.py` forces fake embeddings / fake vector search and sets a dummy `DATABASE_URL`, so `tests/unit` runs without Postgres / live OpenAI / Infisical / Keycloak. Integration tests under `tests/integration` may still hit Postgres — check the file before assuming.
 
 ### Frontend (run from `web/`)
 
@@ -106,7 +118,7 @@ Ingestion, search, and execute all consume this Protocol — adding a new connec
 ### Request lifecycle
 
 1. **Connect** — `POST /v1/connections` (REST/admin) creates a `Connection` row with `mode` ∈ {`builtin`, `openapi_url`, `openapi_upload`, `bare_url`} and an `AuthFlow`. Status starts `pending`.
-2. **Index** — `services/ingestion/pipeline.py::index_spec` runs `enrich_spec → operations_to_chunks → embed_batch → vector_search.upsert`. Status becomes `ready`. Each tenant has its own Azure Search index (`Tenant.azure_search_index`).
+2. **Index** — `services/ingestion/pipeline.py::index_spec` runs `enrich_spec → operations_to_chunks → embed_batch`, then persists vectors and keyword indexes on shared `ConnectorSpec` / `OperationChunk` rows (pgvector). Status becomes `ready`. Identical specs across tenants reuse the same catalog row (keyed on source identity + `spec_hash` + embedding model/dim).
 3. **Search** — MCP `search` tool → `services/search/service.py::SearchService.search` → returns operation candidates with `(operation_id, connection_id, ...)`. If the top hits span multiple connectors it sets `clarification_needed=true` so the agent can disambiguate.
 4. **Execute** — MCP `execute` tool → `services/execute/runner.py::execute_structured`:
    - load the `Connection`, build the operation's request from spec + caller params (`services/execute/operation.py`)
@@ -120,15 +132,14 @@ Code-mode (LLM-generated JS validators running in the Blaxel sandbox) is the lay
 
 Defined in `src/harnex_api/db/models.py`. Key entities:
 
-- `Tenant` (slug, plan, `keycloak_org_id`, `infisical_project_id`, `azure_search_index`, `azure_blob_container`, monthly quota)
+- `Tenant` (slug, plan, `keycloak_org_id`, `infisical_project_id`, monthly quota)
 - `TenantMembership` (links Keycloak users to tenants with a `TenantRole`)
-- `Connector` catalog row + `Connection` (one tenant's instance: mode, status, base_url, spec ref, `auth_flow`, `auth_config`)
+- `Connector` catalog row + `Connection` (one tenant's instance: mode, status, base_url, spec ref, `spec_id` → shared catalog, `auth_flow`, `auth_config`)
+- `ConnectorSpec` + `OperationChunk` (cross-tenant OpenAPI catalog + per-operation embeddings / tsvector; tenant scoping only at search/execute via `Connection`)
 - `Execution` (one MCP/REST execute call; `mode` ∈ {`code`, `structured`})
 - `UsageMonthly` (per tenant per `YYYY-MM` counters; quota enforcement reads this)
 - `ApiKey` (tenant-scoped M2M keys; `key_prefix` + `key_hash` — the raw `hnx...` is shown once at creation)
 - `OAuthState` (short-lived, deleted after callback)
-
-`Tenant.azure_search_index` and `Tenant.azure_blob_container` are tenant-scoped resource pointers — never reuse across tenants.
 
 ### Auth — three things, kept separate
 

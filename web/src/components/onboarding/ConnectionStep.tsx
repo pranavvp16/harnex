@@ -1,12 +1,20 @@
 import { useState } from "react";
 
+import type { MarkKey } from "./marks";
 import { FormActions } from "./FormActions";
 import { Marks } from "./marks";
-import { POPULAR_CONNECTIONS, type ConnectionState } from "./types";
+import {
+  POPULAR_CONNECTIONS,
+  wireLabelsForConnector,
+  type ConnectionState,
+} from "./types";
 
 interface ConnectionStepProps {
   value: ConnectionState;
   onChange: (next: ConnectionState) => void;
+  /** Hover from grid — previews orbit labels & detail card without committing selection. */
+  previewConnector?: MarkKey | null;
+  onHoverConnectorChange?: (key: MarkKey | null) => void;
   onContinue: () => void;
   onBack?: () => void;
   onSkip: () => void;
@@ -17,6 +25,8 @@ interface ConnectionStepProps {
 export function ConnectionStep({
   value,
   onChange,
+  previewConnector,
+  onHoverConnectorChange,
   onContinue,
   onBack,
   onSkip,
@@ -30,9 +40,15 @@ export function ConnectionStep({
       c.kind.toLowerCase().includes(search.toLowerCase()),
   );
   const selected = value.connection;
-  const selectedName = selected
-    ? POPULAR_CONNECTIONS.find((c) => c.key === selected)?.name
-    : null;
+  const selectedDetails = selected
+    ? POPULAR_CONNECTIONS.find((c) => c.key === selected)
+    : undefined;
+  const selectedName = selectedDetails?.name;
+  const focusKey = previewConnector ?? selected;
+  const focusDetails = focusKey
+    ? POPULAR_CONNECTIONS.find((c) => c.key === focusKey)
+    : undefined;
+  const previewLines = wireLabelsForConnector(focusKey).slice(0, 5);
 
   return (
     <div className="ob-step-body">
@@ -43,8 +59,8 @@ export function ConnectionStep({
         Add your <span className="serif-i">first</span> connection.
       </h1>
       <p className="ob-sub">
-        Pick a tool your agents will reach for most. We&apos;ll generate typed handlers and a
-        sandbox in your console — no keys required to explore.
+        Pick a tool your agents will reach for most. We&apos;ll generate typed handlers and a sandbox
+        in your console — no keys required to explore.
       </p>
 
       <div className="ob-search">
@@ -68,7 +84,10 @@ export function ConnectionStep({
         />
       </div>
 
-      <div className="ob-conn-grid">
+      <div
+        className="ob-conn-grid"
+        onMouseLeave={() => onHoverConnectorChange?.(null)}
+      >
         {filtered.map((c) => {
           const active = selected === c.key;
           return (
@@ -76,7 +95,19 @@ export function ConnectionStep({
               key={c.key}
               type="button"
               className={`ob-conn${active ? " is-active" : ""}`}
-              onClick={() => onChange({ ...value, connection: active ? null : c.key })}
+              onMouseEnter={() => onHoverConnectorChange?.(c.key)}
+              onClick={() => {
+                if (active) {
+                  onChange({ connection: null, displayName: "" });
+                } else {
+                  const nameDefault =
+                    POPULAR_CONNECTIONS.find((x) => x.key === c.key)?.name ?? "Connection";
+                  onChange({
+                    connection: c.key,
+                    displayName: nameDefault,
+                  });
+                }
+              }}
             >
               <span className="ob-conn-mark">{Marks[c.key]}</span>
               <span className="ob-conn-text">
@@ -108,6 +139,53 @@ export function ConnectionStep({
           </div>
         )}
       </div>
+
+      {focusDetails && (
+        <div className="ob-conn-detail">
+          <div className="ob-conn-detail-head">
+            <span className="ob-field-label mono">
+              {focusKey === selected ? "Connection" : "Preview"}
+            </span>
+            <span className="ob-conn-detail-title">
+              {focusDetails.name}
+              <span className="ob-conn-detail-kind">{focusDetails.kind}</span>
+            </span>
+          </div>
+          <p className="ob-conn-detail-copy">
+            {selected === focusDetails.key
+              ? "Name this connection for your workspace. You can add credentials after onboarding."
+              : "Hover picks example routes on the constellation. Click to select and continue."}
+          </p>
+          {selected === focusDetails.key && (
+            <div className="ob-field" style={{ marginTop: 4 }}>
+              <label className="ob-field-label" htmlFor="ob-conn-display-name">
+                Display name<span className="ob-field-opt">optional</span>
+              </label>
+              <input
+                id="ob-conn-display-name"
+                className="input ob-input"
+                placeholder={focusDetails.name}
+                value={value.displayName}
+                onChange={(e) =>
+                  onChange({
+                    ...value,
+                    connection: selected,
+                    displayName: e.target.value,
+                  })
+                }
+                autoComplete="off"
+              />
+            </div>
+          )}
+          <div className="ob-conn-detail-routes mono" aria-label="Sample API routes">
+            {previewLines.map((line) => (
+              <span key={line} className="ob-conn-detail-route-chip">
+                {line}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {serverError && <div className="alert alert-red" style={{ marginTop: 12 }}>{serverError}</div>}
 

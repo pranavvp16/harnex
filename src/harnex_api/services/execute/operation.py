@@ -68,7 +68,14 @@ def _split_params_by_location(op: Operation) -> dict[str, list[dict[str, Any]]]:
 
 
 def _required_names(params: list[dict[str, Any]]) -> set[str]:
-    return {p.get("name") for p in params if p.get("required")} - {None}  # type: ignore[arg-type]
+    names: set[str] = set()
+    for p in params:
+        if not p.get("required"):
+            continue
+        name = p.get("name")
+        if isinstance(name, str):
+            names.add(name)
+    return names
 
 
 def build_request(op: Operation, params: ExecuteParams) -> ExecuteRequest:

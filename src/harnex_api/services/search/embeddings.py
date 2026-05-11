@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 from typing import Protocol
 
 from harnex_api.config import get_settings
+
+# OpenAI text-embedding-3 accepts up to 2048 inputs / ~8k tokens per request;
+# 64 stays well under both limits and keeps latency predictable for large
+# specs (e.g. GitHub's ~1k operations).
+_EMBED_BATCH_SIZE = 64
+_EMBED_MAX_ATTEMPTS = 3
 
 
 class EmbeddingProvider(Protocol):
@@ -12,6 +19,8 @@ class EmbeddingProvider(Protocol):
 
     async def embed(self, text: str) -> list[float]: ...
     async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+    @property
+    def model_name(self) -> str: ...
 
 
 class FakeEmbeddingProvider:
@@ -23,8 +32,12 @@ class FakeEmbeddingProvider:
     they share a hash prefix.
     """
 
-    def __init__(self, dim: int = 64) -> None:
+    def __init__(self, dim: int = 1536) -> None:
         self.dim = dim
+
+    @property
+    def model_name(self) -> str:
+        return f"fake-{self.dim}"
 
     async def embed(self, text: str) -> list[float]:
         return self._embed(text)
@@ -46,30 +59,29 @@ class FakeEmbeddingProvider:
         return [x / norm for x in vec]
 
 
-class AzureOpenAIEmbeddings:
-    """Uses Azure OpenAI deployments for embeddings. Lazy-imports the SDK so
-    tests that pin to fakes don't need the network or credentials.
+class OpenAIEmbeddings:
+    """OpenAI embeddings client (direct, not Azure).
+
+    text-embedding-3-large supports MRL truncation via the `dimensions`
+    parameter, so we can request 1536-d vectors from a 3072-d model and get
+    near-best-quality results at half the storage / faster pgvector HNSW.
     """
 
-    def __init__(
-        self, *, endpoint: str, api_key: str, api_version: str, deployment: str, dim: int
-    ) -> None:
-        self.endpoint = endpoint
+    def __init__(self, *, api_key: str, model: str, dim: int) -> None:
         self.api_key = api_key
-        self.api_version = api_version
-        self.deployment = deployment
+        self.model = model
         self.dim = dim
         self._client: object | None = None
 
+    @property
+    def model_name(self) -> str:
+        return self.model
+
     def _get_client(self) -> object:
         if self._client is None:
-            from openai import AsyncAzureOpenAI  # lazy
+            from openai import AsyncOpenAI  # lazy
 
-            self._client = AsyncAzureOpenAI(
-                azure_endpoint=self.endpoint,
-                api_key=self.api_key,
-                api_version=self.api_version,
-            )
+            self._client = AsyncOpenAI(api_key=self.api_key)
         return self._client
 
     async def embed(self, text: str) -> list[float]:
@@ -77,30 +89,60 @@ class AzureOpenAIEmbeddings:
         return result[0]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
         client = self._get_client()
-        resp = await client.embeddings.create(  # type: ignore[attr-defined]
-            model=self.deployment,
-            input=texts,
-        )
-        return [item.embedding for item in resp.data]
+        out: list[list[float]] = []
+        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+            chunk = texts[start : start + _EMBED_BATCH_SIZE]
+            resp = await self._embed_chunk_with_retry(client, chunk)
+            out.extend(item.embedding for item in resp.data)
+        return out
+
+    async def _embed_chunk_with_retry(self, client: object, chunk: list[str]):  # type: ignore[no-untyped-def]
+        last_exc: Exception | None = None
+        for attempt in range(_EMBED_MAX_ATTEMPTS):
+            try:
+                return await client.embeddings.create(  # type: ignore[attr-defined]
+                    model=self.model,
+                    input=chunk,
+                    dimensions=self.dim,
+                )
+            except Exception as exc:
+                last_exc = exc
+                if attempt == _EMBED_MAX_ATTEMPTS - 1 or not _is_retryable(exc):
+                    raise
+                await asyncio.sleep(0.5 * (2**attempt))
+        # Unreachable — the loop either returns or raises — but mypy needs it.
+        raise last_exc  # type: ignore[misc]
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Heuristic: rate limits and 5xx-class transient errors are worth retrying."""
+    name = type(exc).__name__
+    if name in {"RateLimitError", "APITimeoutError", "APIConnectionError"}:
+        return True
+    status_code = getattr(exc, "status_code", None) or getattr(
+        getattr(exc, "response", None), "status_code", None
+    )
+    return isinstance(status_code, int) and status_code >= 500
 
 
 def get_embedding_provider() -> EmbeddingProvider:
     settings = get_settings()
-    if settings.use_fake_embeddings or not settings.azure_openai_endpoint:
-        return FakeEmbeddingProvider(dim=settings.azure_openai_embedding_dim)
-    return AzureOpenAIEmbeddings(
-        endpoint=settings.azure_openai_endpoint,
-        api_key=settings.azure_openai_api_key.get_secret_value(),
-        api_version=settings.azure_openai_api_version,
-        deployment=settings.azure_openai_embedding_deployment,
-        dim=settings.azure_openai_embedding_dim,
+    api_key = settings.openai_api_key.get_secret_value()
+    if settings.use_fake_embeddings or not api_key:
+        return FakeEmbeddingProvider(dim=settings.openai_embedding_dim)
+    return OpenAIEmbeddings(
+        api_key=api_key,
+        model=settings.openai_embedding_model,
+        dim=settings.openai_embedding_dim,
     )
 
 
 __all__ = [
-    "AzureOpenAIEmbeddings",
     "EmbeddingProvider",
     "FakeEmbeddingProvider",
+    "OpenAIEmbeddings",
     "get_embedding_provider",
 ]

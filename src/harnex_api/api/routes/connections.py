@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harnex_api.api.dependencies.auth import TenantContext, get_tenant_context
@@ -14,6 +22,8 @@ from harnex_api.api.schemas.connections import (
     ConnectionTestResponse,
     ReindexResult,
 )
+from harnex_api.db.models import ConnectionMode
+from harnex_api.logging import get_logger
 from harnex_api.services import connections as svc
 from harnex_api.services.connection_test import (
     ConnectionTestInput,
@@ -62,12 +72,14 @@ async def test_connection(
         error_kind=result.error_kind,
         message=result.message,
         duration_ms=result.duration_ms,
+        metadata=result.metadata,
     )
 
 
 @router.post("", response_model=ConnectionOut, status_code=status.HTTP_201_CREATED)
 async def create_connection(
     payload: ConnectionCreate,
+    background: BackgroundTasks,
     ctx: TenantContext = Depends(get_tenant_context),
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionOut:
@@ -88,6 +100,20 @@ async def create_connection(
         )
     except svc.ConnectionInputError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    # openapi_upload runs its own indexing once the file is POSTed to /spec.
+    if payload.mode != ConnectionMode.openapi_upload:
+        # Commit before scheduling so the bg task's fresh session can see the
+        # new row — dependency-level commit otherwise races BackgroundTasks.
+        await db.commit()
+        get_logger("harnex_api.connections").info(
+            "reindex_bg_scheduled",
+            tenant_id=str(ctx.tenant_id),
+            connection_id=str(row.id),
+            mode=payload.mode.value,
+        )
+        background.add_task(
+            svc.reindex_in_new_session, tenant_id=ctx.tenant_id, connection_id=row.id
+        )
     return ConnectionOut.model_validate(row)
 
 
