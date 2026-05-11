@@ -135,8 +135,8 @@ function ApiKeysPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {!showNew ? (
         <>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <div>
+          <div className="responsive-toolbar" style={{ alignItems: "flex-start" }}>
+            <div className="toolbar-search">
               <h2 className="h-display" style={{ fontSize: 20, margin: 0, fontWeight: 500 }}>
                 API <span className="serif-i">keys</span>
               </h2>
@@ -144,7 +144,7 @@ function ApiKeysPage() {
                 Keys authenticate your agents and runtime against the Harnex MCP server.
               </p>
             </div>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button
               className="btn btn-primary btn-sm"
               onClick={() => {
@@ -156,7 +156,7 @@ function ApiKeysPage() {
             </button>
           </div>
 
-          <div className="card" style={{ overflow: "hidden" }}>
+          <div className="card table-scroll">
             <table className="tbl">
               <thead>
                 <tr>
@@ -228,12 +228,12 @@ function ApiKeysPage() {
           </div>
         </>
       ) : (
-        <div className="card" style={{ padding: 20, maxWidth: 640 }}>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
+        <div className="card" style={{ padding: 20, maxWidth: 640, width: "100%" }}>
+          <div className="responsive-toolbar" style={{ alignItems: "center", marginBottom: 14 }}>
             <h2 className="h-display" style={{ fontSize: 20, margin: 0, fontWeight: 500 }}>
               Issue new key
             </h2>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button className="btn btn-ghost btn-sm" onClick={closeNew} aria-label="Close">
               {Ic.x}
             </button>
@@ -335,8 +335,8 @@ function ApiKeysPage() {
                 </AlertBox>
               )}
 
-              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                <span style={{ flex: 1 }} />
+              <div className="wizard-actions" style={{ marginTop: 4 }}>
+                <span className="toolbar-spacer" />
                 <button className="btn btn-ghost" onClick={closeNew}>
                   Cancel
                 </button>
@@ -368,6 +368,7 @@ function ApiKeysPage() {
                   borderRadius: 6,
                   display: "flex",
                   alignItems: "center",
+                  flexWrap: "wrap",
                   gap: 10,
                 }}
               >
@@ -410,8 +411,8 @@ function ApiKeysPage() {
                   </div>
                 </div>
               )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <span style={{ flex: 1 }} />
+              <div className="wizard-actions">
+                <span className="toolbar-spacer" />
                 <button className="btn btn-primary" onClick={closeNew}>
                   Done
                 </button>

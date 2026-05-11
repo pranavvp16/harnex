@@ -209,9 +209,9 @@ export function ConnectionWizard() {
   };
 
   return (
-    <div style={{ padding: "0 0 20px", maxWidth: 880, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="wizard-shell">
       {/* Breadcrumb */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+      <div className="responsive-toolbar" style={{ fontSize: 12 }}>
         <button className="btn btn-ghost btn-sm" onClick={() => void navigate({ to: "/connections" })}>
           {Ic.back} Back
         </button>
@@ -221,7 +221,7 @@ export function ConnectionWizard() {
       </div>
 
       {/* Stepper — completed / current / upcoming use distinct tokens in both themes */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <div className="wizard-stepper">
         {[
           { n: 1, label: "Choose connector" },
           { n: 2, label: "Configure" },
@@ -283,12 +283,9 @@ export function ConnectionWizard() {
               </div>
               {i < arr.length - 1 && (
                 <span
+                  className="wizard-stepper-link"
                   style={{
-                    flex: 1,
-                    height: 2,
-                    borderRadius: 999,
                     background: step > s.n ? "var(--green)" : "var(--border)",
-                    maxWidth: 80,
                     opacity: step > s.n ? 0.55 : 1,
                   }}
                 />
@@ -308,7 +305,7 @@ export function ConnectionWizard() {
               Pick a built-in connector or bring your own spec.
             </p>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div className="wizard-tile-grid">
             {tiles.map((t) => (
               <button
                 key={t.id}
@@ -348,7 +345,7 @@ export function ConnectionWizard() {
                 >
                   {t.icon}
                 </div>
-                <div style={{ flex: 1 }}>
+                <div className="min-w-0" style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 3 }}>{t.name}</div>
                   <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5 }}>
                     {t.desc}
@@ -358,7 +355,7 @@ export function ConnectionWizard() {
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+          <div className="wizard-actions" style={{ justifyContent: "flex-end", marginTop: 8 }}>
             <button
               className="btn btn-primary"
               disabled={!picked}
@@ -450,11 +447,11 @@ export function ConnectionWizard() {
             </AlertBox>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+          <div className="wizard-actions" style={{ marginTop: 6 }}>
             <button className="btn btn-ghost" onClick={() => setStep(1)}>
               {Ic.back} Back
             </button>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button
               className="btn btn-secondary"
               onClick={() => formState && test.mutate(formState)}
@@ -479,7 +476,7 @@ export function ConnectionWizard() {
       )}
 
       {step === 3 && choice && formState && (
-        <div className="card" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="card wizard-card-pad" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <h2 className="h-display" style={{ fontSize: 22, margin: 0, fontWeight: 500 }}>
             Review &amp; <span className="serif-i">create</span>
           </h2>
@@ -574,11 +571,11 @@ export function ConnectionWizard() {
             </AlertBox>
           )}
 
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="wizard-actions">
             <button className="btn btn-ghost" onClick={() => setStep(2)}>
               {Ic.back} Back
             </button>
-            <span style={{ flex: 1 }} />
+            <span className="toolbar-spacer" />
             <button
               className="btn btn-accent"
               onClick={handleCreate}
@@ -648,7 +645,7 @@ function ReviewGrid({ children }: { children: React.ReactNode }) {
         padding: 16,
       }}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", rowGap: 8, fontSize: 12.5 }}>
+      <div className="wizard-review-grid">
         {children}
       </div>
     </div>

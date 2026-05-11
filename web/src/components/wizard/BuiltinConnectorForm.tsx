@@ -44,7 +44,7 @@ function useEmitState<T extends Record<string, unknown>>(
       onStateChange(build(values as T, false));
     });
     return () => sub.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [form, onStateChange]);
 }
 

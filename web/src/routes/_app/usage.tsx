@@ -26,7 +26,7 @@ function UsagePage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+      <div className="responsive-grid-3" style={{ gap: 12 }}>
         <KpiCard
           label="Executions this month"
           value={u.executions.toLocaleString()}

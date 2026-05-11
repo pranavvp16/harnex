@@ -138,7 +138,7 @@ function AppShell() {
       style={{
         display: "grid",
         gridTemplateColumns: narrowNav ? "1fr" : "220px 1fr",
-        height: "100vh",
+        height: "100dvh",
         position: "relative",
         zIndex: 1,
         fontSize: 13,
@@ -446,6 +446,7 @@ function AppShell() {
       <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Topbar */}
         <header
+          className="app-topbar"
           role="banner"
           style={{
             height: 44,
@@ -471,15 +472,18 @@ function AppShell() {
               <Menu size={18} />
             </button>
           )}
-          <h1 style={{ fontSize: 14, fontWeight: 500, margin: 0, color: "var(--ink)" }}>
+          <h1
+            className="app-topbar-title"
+            style={{ fontSize: 14, fontWeight: 500, margin: 0, color: "var(--ink)" }}
+          >
             {shellPageTitle(matchRoute)}
           </h1>
-          <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="app-topbar-actions" style={{ marginLeft: "auto" }}>
             <a
               href="https://docs.harnex.dev"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-sm app-topbar-docs"
               style={{ gap: 5 }}
             >
               <BookOpen size={12} />
@@ -497,7 +501,7 @@ function AppShell() {
               <Bell size={13} />
             </button>
             <span
-              className="mono"
+              className="mono app-topbar-kbd"
               style={{
                 fontSize: 11,
                 color: "var(--muted)",
@@ -514,7 +518,7 @@ function AppShell() {
 
         {/* Content */}
         <main id="main-content" style={{ flex: 1, overflow: "auto" }} tabIndex={-1}>
-          <div style={{ padding: 20 }}>
+          <div className="app-content-pad">
             <Outlet />
           </div>
         </main>
