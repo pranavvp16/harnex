@@ -58,6 +58,10 @@ async def test_mcp_endpoint_rejects_invalid_bearer(app) -> None:
     assert payload["error"]["code"] == -32001
 
 
+_DEV_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_DUMMY_API_KEY_ID = uuid.UUID("00000000-0000-0000-0000-0000000000AA")
+
+
 async def test_mcp_initialize_returns_capabilities_and_tools(app) -> None:
     """Verify that an authenticated MCP initialize + tools/list round-trip works.
 
@@ -71,12 +75,9 @@ async def test_mcp_initialize_returns_capabilities_and_tools(app) -> None:
 
     from harnex_api.mcp.server import get_mcp_app
 
-    DEV_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-    DUMMY_API_KEY_ID = uuid.UUID("00000000-0000-0000-0000-0000000000AA")
-
     fake_auth = ApiKeyAuth(
-        api_key_id=DUMMY_API_KEY_ID,
-        tenant_id=DEV_TENANT_ID,
+        api_key_id=_DUMMY_API_KEY_ID,
+        tenant_id=_DEV_TENANT_ID,
         scope_type="all",
         scope_connection_ids=(),
     )
@@ -89,17 +90,18 @@ async def test_mcp_initialize_returns_capabilities_and_tools(app) -> None:
             # Use localhost to pass the transport security Host header check.
             asgi_transport = httpx.ASGITransport(app=app)
 
-            def _make_client(**kwargs: object) -> httpx.AsyncClient:
+            def _make_client(**kwargs: object) -> httpx.AsyncClient:  # type: ignore[misc]
                 return httpx.AsyncClient(transport=asgi_transport, base_url="http://localhost", **kwargs)
 
             async with streamablehttp_client(
                 url="http://localhost/mcp/",
                 headers={"Authorization": "Bearer hnx.test.key"},
                 httpx_client_factory=_make_client,
-            ) as (read_stream, write_stream, _session_id_cb):
-                async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
-                    tools_result = await session.list_tools()
-                    tool_names = [t.name for t in tools_result.tools]
-                    assert "search" in tool_names, f"Expected 'search' tool, got: {tool_names}"
-                    assert "execute" in tool_names, f"Expected 'execute' tool, got: {tool_names}"
+            ) as (read_stream, write_stream, _session_id_cb), ClientSession(
+                read_stream, write_stream
+            ) as session:
+                await session.initialize()
+                tools_result = await session.list_tools()
+                tool_names = [t.name for t in tools_result.tools]
+                assert "search" in tool_names, f"Expected 'search' tool, got: {tool_names}"
+                assert "execute" in tool_names, f"Expected 'execute' tool, got: {tool_names}"
