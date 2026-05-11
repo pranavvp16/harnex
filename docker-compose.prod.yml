@@ -1,0 +1,85 @@
+# Production override. Layer on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences vs the base compose:
+#   - api/web come from Azure Container Registry (no `build:` in prod)
+#   - Only Caddy publishes ports — everything else is internal to the docker network
+#   - Persistent volumes live on the attached data disk at /data, not in named volumes
+#   - HARNEX_ENV=prod + Keycloak's hostname/proxy hardening turned on
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      HARNEX_PUBLIC_HOST: ${HARNEX_PUBLIC_HOST:?set HARNEX_PUBLIC_HOST (e.g. harnex-app.eastus2.cloudapp.azure.com)}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /data/caddy:/data
+      - /data/caddy-config:/config
+    depends_on:
+      - web
+      - api
+      - keycloak
+
+  postgres:
+    ports: !reset []
+    volumes: !override
+      - /data/postgres:/var/lib/postgresql/data
+
+  keycloak-db:
+    volumes: !override
+      - /data/keycloak-db:/var/lib/postgresql/data
+
+  keycloak:
+    # `start` (not `start-dev`) enforces production guardrails. First boot auto-builds
+    # the optimized server jar — adds ~30s. To trim that, bake `RUN kc.sh build` into a
+    # downstream Keycloak image and switch to `start --optimized`.
+    command: ["start", "--import-realm"]
+    environment:
+      KC_HOSTNAME: ${HARNEX_PUBLIC_HOST:?}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY: edge
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_STRICT_HTTPS: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports: !reset []
+
+  infisical-db:
+    volumes: !override
+      - /data/infisical-db:/var/lib/postgresql/data
+
+  infisical:
+    environment:
+      SITE_URL: http://infisical:8080
+    ports: !reset []
+
+  api:
+    build: !reset null
+    image: ${ACR_LOGIN_SERVER:?}/harnex-api:${IMAGE_TAG:-latest}
+    environment:
+      HARNEX_ENV: prod
+      KEYCLOAK_INTERNAL_BASE_URL: http://keycloak:8080/auth
+      KEYCLOAK_PUBLIC_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}/auth
+      INFISICAL_INTERNAL_BASE_URL: http://infisical:8080
+      # uvicorn trusts proxy headers from inside the docker bridge.
+      FORWARDED_ALLOW_IPS: "*"
+    command:
+      - uvicorn
+      - harnex_api.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    ports: !reset []
+
+  web:
+    build: !reset null
+    image: ${ACR_LOGIN_SERVER:?}/harnex-web:${IMAGE_TAG:-latest}
+    ports: !reset []
