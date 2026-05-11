@@ -49,16 +49,20 @@ if ! command -v az >/dev/null 2>&1; then
 fi
 
 # --- Data disk --------------------------------------------------------------
-# Azure attaches the data disk as the next sd? device. Pick the largest unmounted
-# disk that has no partition table.
+# Azure VMs on Ubuntu 22.04+ expose data disks as either /dev/sd? (older Gen1)
+# or /dev/nvme0n? (NVMe-enabled SKUs like D*as_v7 — the default we're on).
+# Pick the first whole disk that has no mountpoint and no partitions.
 DATA_DEV=""
-for dev in /dev/sd{c,d,e,f}; do
-  [[ -b "$dev" ]] || continue
-  if ! lsblk -n -o MOUNTPOINT "$dev" | grep -q '/'; then
-    DATA_DEV="$dev"
-    break
+while read -r name type mountpoint; do
+  [[ "$type" == "disk" ]] || continue
+  [[ -n "$mountpoint" ]] && continue
+  # Skip disks that already have any mounted partition (e.g. the OS disk).
+  if lsblk -n -o MOUNTPOINT "/dev/$name" | grep -q '/'; then
+    continue
   fi
-done
+  DATA_DEV="/dev/$name"
+  break
+done < <(lsblk -n -o NAME,TYPE,MOUNTPOINT)
 
 if [[ -z "${DATA_DEV}" ]]; then
   echo "!! Couldn't auto-detect data disk. Mount it manually at ${DATA_DIR} and re-run."
