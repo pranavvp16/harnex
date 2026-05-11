@@ -11,7 +11,7 @@ Harnex is a multitenant backend that lets agents discover and execute against an
 ## Stack
 
 - **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 async, Alembic, Postgres, `uv` for deps
-- **Search:** Azure OpenAI embeddings + Azure AI Search (per-tenant index). Tests use deterministic fakes via `HARNEX_USE_FAKE_EMBEDDINGS` / `HARNEX_USE_FAKE_VECTOR_SEARCH`.
+- **Search:** Direct OpenAI embeddings (`text-embedding-3-large`, MRL-truncated to 1536d) + Postgres **pgvector** hybrid search (HNSW cosine + `tsvector`, fused with RRF). Shared `connector_specs` / `operation_chunks` catalog; tenant isolation at query time via JOIN through `connections.spec_id`. Tests use deterministic fakes via `HARNEX_USE_FAKE_EMBEDDINGS` / `HARNEX_USE_FAKE_VECTOR_SEARCH`.
 - **Auth:** Keycloak (single `harnex` realm; tenant = organization/group) for console users; tenant-scoped API keys for MCP/REST machine traffic
 - **Secrets:** Infisical (third-party platform credentials only — never put Harnex's own secrets here)
 - **Sandbox:** Blaxel (workspace runs `blaxel/node:latest`; sandbox name `harnex-execute`) for code-mode execution
@@ -82,7 +82,7 @@ uv run alembic upgrade head
 uv run alembic downgrade -1
 ```
 
-`tests/conftest.py` forces fake embeddings / fake vector search and sets a dummy `DATABASE_URL`, so `tests/unit` runs without Postgres / Azure / Infisical / Keycloak. Integration tests under `tests/integration` may still hit Postgres — check the file before assuming.
+`tests/conftest.py` forces fake embeddings / fake vector search and sets a dummy `DATABASE_URL`, so `tests/unit` runs without Postgres / live OpenAI / Infisical / Keycloak. Integration tests under `tests/integration` may still hit Postgres — check the file before assuming.
 
 ### Frontend (run from `web/`)
 
@@ -118,7 +118,7 @@ Ingestion, search, and execute all consume this Protocol — adding a new connec
 ### Request lifecycle
 
 1. **Connect** — `POST /v1/connections` (REST/admin) creates a `Connection` row with `mode` ∈ {`builtin`, `openapi_url`, `openapi_upload`, `bare_url`} and an `AuthFlow`. Status starts `pending`.
-2. **Index** — `services/ingestion/pipeline.py::index_spec` runs `enrich_spec → operations_to_chunks → embed_batch → vector_search.upsert`. Status becomes `ready`. Each tenant has its own Azure Search index (`Tenant.azure_search_index`).
+2. **Index** — `services/ingestion/pipeline.py::index_spec` runs `enrich_spec → operations_to_chunks → embed_batch`, then persists vectors and keyword indexes on shared `ConnectorSpec` / `OperationChunk` rows (pgvector). Status becomes `ready`. Identical specs across tenants reuse the same catalog row (keyed on source identity + `spec_hash` + embedding model/dim).
 3. **Search** — MCP `search` tool → `services/search/service.py::SearchService.search` → returns operation candidates with `(operation_id, connection_id, ...)`. If the top hits span multiple connectors it sets `clarification_needed=true` so the agent can disambiguate.
 4. **Execute** — MCP `execute` tool → `services/execute/runner.py::execute_structured`:
    - load the `Connection`, build the operation's request from spec + caller params (`services/execute/operation.py`)
@@ -132,15 +132,14 @@ Code-mode (LLM-generated JS validators running in the Blaxel sandbox) is the lay
 
 Defined in `src/harnex_api/db/models.py`. Key entities:
 
-- `Tenant` (slug, plan, `keycloak_org_id`, `infisical_project_id`, `azure_search_index`, `azure_blob_container`, monthly quota)
+- `Tenant` (slug, plan, `keycloak_org_id`, `infisical_project_id`, monthly quota)
 - `TenantMembership` (links Keycloak users to tenants with a `TenantRole`)
-- `Connector` catalog row + `Connection` (one tenant's instance: mode, status, base_url, spec ref, `auth_flow`, `auth_config`)
+- `Connector` catalog row + `Connection` (one tenant's instance: mode, status, base_url, spec ref, `spec_id` → shared catalog, `auth_flow`, `auth_config`)
+- `ConnectorSpec` + `OperationChunk` (cross-tenant OpenAPI catalog + per-operation embeddings / tsvector; tenant scoping only at search/execute via `Connection`)
 - `Execution` (one MCP/REST execute call; `mode` ∈ {`code`, `structured`})
 - `UsageMonthly` (per tenant per `YYYY-MM` counters; quota enforcement reads this)
 - `ApiKey` (tenant-scoped M2M keys; `key_prefix` + `key_hash` — the raw `hnx...` is shown once at creation)
 - `OAuthState` (short-lived, deleted after callback)
-
-`Tenant.azure_search_index` and `Tenant.azure_blob_container` are tenant-scoped resource pointers — never reuse across tenants.
 
 ### Auth — three things, kept separate
 

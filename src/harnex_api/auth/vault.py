@@ -142,7 +142,7 @@ class InfisicalVault:
         r.raise_for_status()
 
     async def _ensure_folder_tree(self, path: str) -> None:
-        """Walk `path` segments and create each folder bottom-up.
+        """Walk `path` segments and create each folder top-down.
 
         e.g. path="tenants/abc/connections/xyz" → creates `/tenants`, then
         `/tenants/abc`, then `/tenants/abc/connections`, then

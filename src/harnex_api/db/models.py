@@ -113,8 +113,6 @@ class Tenant(Base, TimestampMixin):
     )
     keycloak_org_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     infisical_project_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    azure_search_index: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    azure_blob_container: Mapped[str | None] = mapped_column(String(128), nullable=True)
     monthly_execution_quota: Mapped[int] = mapped_column(BigInteger, default=10_000, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -208,17 +206,22 @@ class Connection(Base, TimestampMixin):
 class ConnectorSpec(Base, TimestampMixin):
     """Cross-tenant catalog of indexed OpenAPI specs.
 
-    Keyed on `(source_type, source_key, spec_hash)` so identical specs (same
-    GitHub release, same Jenkins plugin set) share one row + one set of chunk
-    embeddings across every connection that references them. When upstream
-    changes, `spec_hash` differs → a new row is created and connections swap
-    over on next reindex; the old row is GC'd once no connection points at it.
+    Keyed on `(source_type, source_key, spec_hash, embedding_model, embedding_dim)`
+    so identical specs share one row per embedding space. Switching models or
+    dimensions creates a new catalog row (same spec hash, different vectors)
+    without colliding on the unique key. When upstream changes, `spec_hash`
+    differs; the old row is GC'd once no connection points at it.
     """
 
     __tablename__ = "connector_specs"
     __table_args__ = (
         UniqueConstraint(
-            "source_type", "source_key", "spec_hash", name="uq_connector_specs_identity"
+            "source_type",
+            "source_key",
+            "spec_hash",
+            "embedding_model",
+            "embedding_dim",
+            name="uq_connector_specs_identity",
         ),
     )
 
