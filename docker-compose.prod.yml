@@ -42,7 +42,9 @@ services:
     environment:
       KC_HOSTNAME: ${HARNEX_PUBLIC_HOST:?}
       KC_HTTP_RELATIVE_PATH: /auth
-      KC_PROXY: edge
+      # Keycloak 25 deprecated KC_PROXY in favor of KC_PROXY_HEADERS. `xforwarded`
+      # tells Keycloak to honor X-Forwarded-Proto/-For/-Host from Caddy.
+      KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME_STRICT: "true"
       KC_HOSTNAME_STRICT_HTTPS: "true"
       KC_HTTP_ENABLED: "true"
@@ -78,15 +80,14 @@ services:
         condition: service_started
     environment:
       HARNEX_ENV: prod
-      KEYCLOAK_INTERNAL_BASE_URL: http://keycloak:8080/auth
-      KEYCLOAK_PUBLIC_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}/auth
-      # Infisical Cloud — both vars point at the same URL since we no longer run
-      # the self-host container internally. Reusing INFISICAL_INTERNAL_BASE_URL here
-      # because the api service reads that one specifically (legacy split).
+      # Override the names the API actually reads. The base compose interpolates
+      # these from KEYCLOAK_INTERNAL_BASE_URL / KEYCLOAK_PUBLIC_BASE_URL at parse
+      # time — that happens before the prod override is layered, so setting the
+      # `_INTERNAL_` / `_PUBLIC_` aliases here would NOT change the values that
+      # land in the container. Set the canonical names instead.
+      KEYCLOAK_BASE_URL: http://keycloak:8080/auth
+      KEYCLOAK_ISSUER_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}/auth
       INFISICAL_BASE_URL: ${INFISICAL_BASE_URL:-https://app.infisical.com}
-      INFISICAL_INTERNAL_BASE_URL: ${INFISICAL_BASE_URL:-https://app.infisical.com}
-      # uvicorn trusts proxy headers from inside the docker bridge.
-      FORWARDED_ALLOW_IPS: "*"
     command:
       - uvicorn
       - harnex_api.main:app

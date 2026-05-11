@@ -42,7 +42,10 @@ jobs:
         run: uv run pytest tests/unit
 
   frontend:
-    name: Frontend (eslint + tsc + build)
+    # The web/ package has eslint v9 installed but no eslint.config.js — the lint
+    # script would always fail. Once a config lands, add `- run: pnpm lint` back
+    # and rename this job to include eslint.
+    name: Frontend (build)
     runs-on: ubuntu-latest
     defaults:
       run:
