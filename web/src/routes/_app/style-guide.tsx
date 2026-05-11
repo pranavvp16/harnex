@@ -8,7 +8,7 @@ export const Route = createFileRoute("/_app/style-guide")({
 
 function StyleGuide() {
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <span className="kicker">Reference</span>
         <h2 className="h-display" style={{ fontSize: 28, margin: "8px 0 4px", fontWeight: 500 }}>
@@ -20,7 +20,7 @@ function StyleGuide() {
       </div>
 
       <SgSection title="Colors">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
+        <div className="responsive-grid-4" style={{ gap: 10 }}>
           {[
             { n: "bg", v: "#F5F5F0" },
             { n: "surface", v: "#FFFFFF" },
@@ -92,7 +92,7 @@ function StyleGuide() {
       </SgSection>
 
       <SgSection title="Inputs & Selects">
-        <div className="card" style={{ padding: 16, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div className="card responsive-grid-3" style={{ padding: 16, gap: 10 }}>
           <input className="input" placeholder="Default input" />
           <input className="input input-mono" placeholder="hx_live_••••" />
           <select className="select">

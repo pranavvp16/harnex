@@ -255,7 +255,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       manager.events.removeUserLoaded(onUserLoaded);
       manager.events.removeUserUnloaded(onUserUnloaded);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on manager init
+     
   }, [manager]);
 
   const signIn = useCallback(

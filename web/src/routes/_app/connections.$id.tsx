@@ -114,10 +114,11 @@ function ConnectionDetail() {
       </div>
 
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div className="responsive-toolbar" style={{ alignItems: "center" }}>
         <div
           style={{
             width: 44,
+            flexShrink: 0,
             height: 44,
             borderRadius: 8,
             background: "var(--surface)",
@@ -132,13 +133,14 @@ function ConnectionDetail() {
         >
           {c.name.slice(0, 1).toUpperCase()}
         </div>
-        <div>
+        <div className="toolbar-search">
           <h2
             style={{
               fontSize: 20,
               fontWeight: 500,
               margin: 0,
               letterSpacing: "-0.01em",
+              overflowWrap: "anywhere",
             }}
             className="mono"
           >
@@ -151,7 +153,7 @@ function ConnectionDetail() {
             </span>
           </div>
         </div>
-        <span style={{ flex: 1 }} />
+        <span className="toolbar-spacer" />
         <button
           className="btn btn-secondary btn-sm"
           onClick={() => reindex.mutate()}
@@ -243,7 +245,7 @@ function ConnectionDetail() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div className="responsive-grid-2" style={{ gap: 12 }}>
         {/* Overview */}
         <div className="card">
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
@@ -346,6 +348,7 @@ function ConnectionDetail() {
 function KeyVal({ k, v, last }: { k: string; v: React.ReactNode; last?: boolean }) {
   return (
     <div
+      className="kv-row"
       style={{
         display: "grid",
         gridTemplateColumns: "140px 1fr",

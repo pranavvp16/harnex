@@ -103,7 +103,7 @@ function ConnectionsIndex() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Status cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+      <div className="responsive-grid-4" style={{ gap: 10 }}>
         {statusCards.map((s) => (
           <button
             key={s.k}
@@ -146,8 +146,8 @@ function ConnectionsIndex() {
       </div>
 
       {/* Toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ position: "relative", width: 280 }}>
+      <div className="responsive-toolbar">
+        <div className="toolbar-search" style={{ position: "relative", width: 280 }}>
           <span style={{ position: "absolute", left: 10, top: 9, color: "var(--muted)" }}>
             {Ic.search}
           </span>
@@ -167,7 +167,7 @@ function ConnectionsIndex() {
           />
         </div>
         <select
-          className="select"
+          className="select toolbar-control"
           style={{ width: 140 }}
           value={statusFilter ?? "all"}
           onChange={(e) =>
@@ -187,7 +187,7 @@ function ConnectionsIndex() {
           <option value="disabled">Disabled</option>
         </select>
         <button className="btn btn-ghost btn-sm">{Ic.filter} Filters</button>
-        <span style={{ marginLeft: "auto" }} />
+        <span className="toolbar-spacer" />
         <Link to="/connections/new">
           <button className="btn btn-primary btn-sm">{Ic.plus} New connection</button>
         </Link>
@@ -219,7 +219,7 @@ function ConnectionsIndex() {
 
       {/* Table */}
       {data.length > 0 && (
-        <div className="card" style={{ overflow: "hidden" }}>
+        <div className="card table-scroll">
           <table className="tbl">
             <thead>
               <tr>
