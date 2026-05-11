@@ -61,15 +61,27 @@ kcadm update "clients/${WEB_ID}" -r "${REALM}" \
 
 echo "==> harnex-web updated"
 
+ADM_ID=$(kcadm get clients -r "${REALM}" -q clientId=harnex-admin-cli \
+  --fields id --format csv --noquotes | tail -n1)
+if [[ -z "${ADM_ID}" ]]; then
+  echo "!! harnex-admin-cli client not found in realm ${REALM}" >&2
+  exit 1
+fi
+
 if [[ -n "${KEYCLOAK_ADMIN_CLIENT_SECRET:-}" ]]; then
   echo "==> Rotating harnex-admin-cli secret"
-  ADM_ID=$(kcadm get clients -r "${REALM}" -q clientId=harnex-admin-cli \
-    --fields id --format csv --noquotes | tail -n1)
-  if [[ -n "${ADM_ID}" ]]; then
-    kcadm update "clients/${ADM_ID}" -r "${REALM}" \
-      -s "secret=${KEYCLOAK_ADMIN_CLIENT_SECRET}"
-    echo "==> harnex-admin-cli secret rotated — restart api so it picks up the new secret"
-  fi
+  kcadm update "clients/${ADM_ID}" -r "${REALM}" \
+    -s "secret=${KEYCLOAK_ADMIN_CLIENT_SECRET}"
+  echo "==> harnex-admin-cli secret rotated — restart api so it picks up the new secret"
 fi
+
+# The sign-up flow calls POST /admin/realms/harnex/users via the harnex-admin-cli
+# service account. Without realm-management.manage-users the call returns 403:
+# "Keycloak create user failed (403)". The role can't be baked into the realm
+# import JSON because Keycloak only creates the service-account user lazily.
+echo "==> Granting realm-management.manage-users to harnex-admin-cli SA"
+kcadm add-roles -r "${REALM}" \
+  --uusername "service-account-harnex-admin-cli" \
+  --cclientid realm-management --rolename manage-users 2>&1 | grep -v "already exists" || true
 
 echo "Done. SPA should now redirect through ${PUBLIC_BASE}/auth/realms/${REALM}/..."
