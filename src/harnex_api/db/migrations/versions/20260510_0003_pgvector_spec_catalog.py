@@ -121,7 +121,8 @@ def upgrade() -> None:
     )
     op.execute(
         "CREATE INDEX ix_operation_chunks_embedding "
-        "ON operation_chunks USING hnsw (embedding vector_cosine_ops)"
+        "ON operation_chunks USING hnsw (embedding vector_cosine_ops) "
+        "WITH (m = 32, ef_construction = 128)"
     )
 
     op.add_column(

@@ -23,7 +23,7 @@ from harnex_api.logging import get_logger
 from harnex_api.services.ingestion.fetcher import (
     SpecFetchError,
     SpecValidationError,
-    fetch_spec_from_url,
+    fetch_spec_for_connection,
     parse_uploaded_spec,
 )
 from harnex_api.services.ingestion.pipeline import IndexResult, index_spec
@@ -141,8 +141,8 @@ async def reindex_connection(
         if conn.connector_key and registry.has(conn.connector_key):
             connector = registry.get(conn.connector_key)
             spec = await connector.load_spec(_to_config(conn))
-        elif conn.spec_url:
-            spec = await fetch_spec_from_url(conn.spec_url)
+        if spec is None:
+            spec = await fetch_spec_for_connection(_to_config(conn))
     except (SpecFetchError, SpecValidationError) as exc:
         conn.status = ConnectionStatus.error
         conn.last_error = str(exc)

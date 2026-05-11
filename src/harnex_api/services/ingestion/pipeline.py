@@ -1,10 +1,12 @@
 """Spec-catalog-aware indexing pipeline.
 
-`index_spec` keys storage on `(source_type, source_key, spec_hash)`. When a
-spec already exists in the catalog (because a sibling tenant's connection
-indexed it earlier, or because this connection's spec is unchanged since
-last reindex), we reuse the row and skip embedding entirely. Otherwise
-chunks are embedded once and inserted in a single transaction.
+`index_spec` keys storage on
+`(source_type, source_key, spec_hash, embedding_model, embedding_dim)`. When a
+spec already exists in the catalog for the same embedding space (because a
+sibling tenant's connection indexed it earlier, or because this connection's
+spec is unchanged since last reindex), we reuse the row and skip embedding
+entirely. Otherwise chunks are embedded once and inserted in a single
+transaction.
 
 Tenant scoping happens at *search* time via JOIN through `connections.spec_id`
 — catalog rows themselves are global and contain only public OpenAPI text.
@@ -80,7 +82,7 @@ async def index_spec(
     spec: LoadedSpec,
     embeddings: EmbeddingProvider | None = None,
 ) -> IndexResult:
-    """Idempotent indexing keyed on `(source_type, source_key, spec_hash)`.
+    """Idempotent indexing keyed on spec identity and embedding space.
 
     Updates `connection.spec_id` in-place (caller is responsible for the
     surrounding transaction commit). Reuse fast-path skips embedding and
