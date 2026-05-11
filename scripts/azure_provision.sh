@@ -151,16 +151,8 @@ az role assignment create \
   --assignee-principal-type ServicePrincipal \
   --role AcrPush --scope "${ACR_ID}" -o none 2>/dev/null || true
 
-# Federated credential — trust GitHub's OIDC issuer for pushes from `main`
-# and from PRs (the CI workflow runs on PRs but only deploy.yml on main).
-cat >/tmp/harnex-fed-main.json <<EOF
-{
-  "name": "harnex-gh-main",
-  "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "repo:${GH_REPO}:ref:refs/heads/main",
-  "audiences": ["api://AzureADTokenExchange"]
-}
-EOF
+# Federated credential — trust GitHub's OIDC issuer for pushes from `main`.
+# (PR builds don't need it; the deploy workflow only fires on main.)
 az identity federated-credential create -g "${RG}" \
   --identity-name "${GH_IDENTITY_NAME}" \
   --name harnex-gh-main \
