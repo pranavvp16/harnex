@@ -1,0 +1,31 @@
+{$HARNEX_PUBLIC_HOST} {
+	encode zstd gzip
+
+	# Trust the immediate upstream (the docker bridge) so request_id / forwarded headers work.
+	servers {
+		trusted_proxies static private_ranges
+	}
+
+	# Keycloak runs with KC_HTTP_RELATIVE_PATH=/auth, so it expects requests to keep the prefix.
+	handle /auth/* {
+		reverse_proxy keycloak:8080
+	}
+
+	handle /v1/* {
+		reverse_proxy api:8000
+	}
+
+	# MCP server is mounted at /mcp; cover both bare /mcp and /mcp/...
+	handle /mcp* {
+		reverse_proxy api:8000
+	}
+
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+
+	# Everything else → the SPA.
+	handle {
+		reverse_proxy web:80
+	}
+}
