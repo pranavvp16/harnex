@@ -49,11 +49,19 @@ services:
       KC_HEALTH_ENABLED: "true"
     ports: !reset []
 
+  # Self-host Infisical is intentionally disabled in prod — we use Infisical Cloud
+  # (https://app.infisical.com). Parking these under a `self-host` profile keeps the
+  # base compose valid without spinning up containers that we won't use.
   infisical-db:
+    profiles: ["self-host"]
     volumes: !override
       - /data/infisical-db:/var/lib/postgresql/data
 
+  infisical-redis:
+    profiles: ["self-host"]
+
   infisical:
+    profiles: ["self-host"]
     environment:
       SITE_URL: http://infisical:8080
     ports: !reset []
@@ -61,11 +69,22 @@ services:
   api:
     build: !reset null
     image: ${ACR_LOGIN_SERVER:?}/harnex-api:${IMAGE_TAG:-latest}
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
     environment:
       HARNEX_ENV: prod
       KEYCLOAK_INTERNAL_BASE_URL: http://keycloak:8080/auth
       KEYCLOAK_PUBLIC_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}/auth
-      INFISICAL_INTERNAL_BASE_URL: http://infisical:8080
+      # Infisical Cloud — both vars point at the same URL since we no longer run
+      # the self-host container internally. Reusing INFISICAL_INTERNAL_BASE_URL here
+      # because the api service reads that one specifically (legacy split).
+      INFISICAL_BASE_URL: ${INFISICAL_BASE_URL:-https://app.infisical.com}
+      INFISICAL_INTERNAL_BASE_URL: ${INFISICAL_BASE_URL:-https://app.infisical.com}
       # uvicorn trusts proxy headers from inside the docker bridge.
       FORWARDED_ALLOW_IPS: "*"
     command:
