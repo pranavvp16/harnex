@@ -51,6 +51,7 @@ export function Modal({
           {children}
         </div>
         <div
+          className="modal-actions"
           style={{
             display: "flex",
             justifyContent: "flex-end",

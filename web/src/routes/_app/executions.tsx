@@ -38,8 +38,8 @@ function ExecutionsPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <div style={{ position: "relative", width: 320 }}>
+      <div className="responsive-toolbar">
+        <div className="toolbar-search" style={{ position: "relative", width: 320 }}>
           <span style={{ position: "absolute", left: 10, top: 9, color: "var(--muted)" }}>
             {Ic.search}
           </span>
@@ -52,7 +52,7 @@ function ExecutionsPage() {
           />
         </div>
         <select
-          className="select"
+          className="select toolbar-control"
           style={{ width: 140 }}
           value={statusF}
           onChange={(e) => setStatusF(e.target.value)}
@@ -63,17 +63,17 @@ function ExecutionsPage() {
           <option value="timeout">Timeout</option>
           <option value="pending">Pending</option>
         </select>
-        <select className="select" style={{ width: 140 }}>
+        <select className="select toolbar-control" style={{ width: 140 }}>
           <option>Last 1h</option>
           <option>Last 24h</option>
           <option>Last 7d</option>
           <option>Last 30d</option>
         </select>
-        <span style={{ flex: 1 }} />
+        <span className="toolbar-spacer" />
         <button className="btn btn-ghost btn-sm">Export CSV</button>
       </div>
 
-      <div className="card" style={{ overflow: "hidden" }}>
+      <div className="card table-scroll">
         <table className="tbl">
           <thead>
             <tr>

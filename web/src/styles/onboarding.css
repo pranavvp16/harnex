@@ -2,7 +2,7 @@
    Tokens (--bg, --ink, --accent, etc.) come from globals.css. */
 
 .ob-root {
-  height: 100vh; width: 100vw;
+  height: 100dvh; width: 100vw;
   display: grid;
   grid-template-columns: minmax(520px, 1.1fr) minmax(0, 1fr);
   background: var(--bg);
@@ -605,13 +605,58 @@
 }
 
 @media (max-width: 1100px) {
+  .ob-root { grid-template-columns: minmax(460px, 1.2fr) minmax(320px, 0.8fr); }
   .ob-left { padding: 24px 32px; }
   .ob-title { font-size: 32px; }
   .oc-caption { left: 24px; right: 24px; bottom: 24px; }
   .oc-cap-title { font-size: 20px; }
 }
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .ob-root { grid-template-columns: 1fr; }
   .ob-right { display: none; }
+  .ob-left { border-right: none; }
+}
+@media (max-width: 720px) {
   .ob-left { padding: 24px; border-right: none; }
+  .ob-header { align-items: flex-start; gap: 12px; }
+  .ob-header-right { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .ob-title { font-size: clamp(28px, 9vw, 34px); }
+  .ob-stepper { gap: 8px; margin-bottom: 22px; }
+  .ob-step-meta { font-size: 10px; }
+  .ob-conn-grid { grid-template-columns: 1fr; max-height: none; }
+  .ob-actions { flex-direction: column-reverse; align-items: stretch; gap: 12px; }
+  .ob-actions-right { width: 100%; justify-content: stretch; }
+  .ob-actions-right .btn,
+  .ob-actions-right button { flex: 1; }
+  .ob-back { width: 100%; }
+  .ob-footer { flex-wrap: wrap; }
+  .ob-footer-shard { margin-left: 0; width: 100%; }
+}
+@media (max-width: 480px) {
+  .ob-left { padding: 18px 16px; }
+  .ob-header { margin-bottom: 16px; }
+  .ob-help { font-size: 10.5px; }
+  .ob-progress { font-size: 10px; }
+  .ob-step-label { display: none; }
+  .ob-main { justify-content: flex-start; padding-top: 8px; }
+  .ob-sub { font-size: 13.5px; margin-bottom: 20px; }
+  .ob-provider { height: auto; min-height: 48px; padding: 10px 14px; }
+  .ob-segments { grid-template-columns: repeat(2, 1fr); }
+  .ob-segment:nth-child(2) { border-right: none; }
+  .ob-segment:nth-child(-n + 2) { border-bottom: 1px solid var(--border); }
+  .ob-input-prefix { flex-direction: column; }
+  .ob-prefix {
+    min-height: 32px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .ob-helper {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .ob-helper-status {
+    margin-left: 0;
+    width: 100%;
+  }
+  .ob-tip { align-items: flex-start; }
 }

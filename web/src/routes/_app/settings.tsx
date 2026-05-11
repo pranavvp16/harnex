@@ -20,7 +20,7 @@ function SettingsPage() {
   const tenantId = auth.devTenantId ?? "—";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: 24, maxWidth: 720 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 720 }}>
       <header>
         <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", margin: 0 }}>
           Settings
