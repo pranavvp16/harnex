@@ -19,3 +19,4 @@ node_modules/
 uv.lock
 .gstack/
 .claude/
+PRODUCTION_DEPLOYMENT.local.md
