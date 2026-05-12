@@ -20,6 +20,8 @@ function Dashboard() {
   const usage = useQuery({
     queryKey: ["usage", "current"],
     queryFn: () => api.getCurrentUsage(),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
   const recent = useQuery({
     queryKey: ["executions", { limit: 7 }],
