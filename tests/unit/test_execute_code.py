@@ -94,11 +94,34 @@ def _make_session_with_connection(
     conn.auth_config = {"header_name": "X-Api-Key", "secret_name": "test-secret"}
 
     session = MagicMock()
+    session.execute = AsyncMock()
 
     # Patch get_connection + resolve connector inline per test via monkeypatching.
     # We store the conn on session so tests can reference it.
     session._fake_conn = conn
     return session
+
+
+def _magic_db_session() -> MagicMock:
+    """MagicMock AsyncSession: ``execute`` is awaitable (usage_monthly upsert)."""
+    s = MagicMock()
+    s.execute = AsyncMock()
+    return s
+
+
+@pytest.fixture(autouse=True)
+def patch_execute_usage_session_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """execute_code records usage via ``session_scope``; stub it so unit tests skip Postgres."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_scope() -> Any:
+        yield _magic_db_session()
+
+    monkeypatch.setattr(
+        "harnex_api.services.execute.runner.session_scope",
+        fake_scope,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +235,7 @@ async def test_execute_code_success() -> None:
         mock_spec.document = SPEC
         mock_resolve.return_value = (mock_connector, mock_spec)
 
-        session = MagicMock()
+        session = _magic_db_session()
         params = ExecuteParams(path={"item_id": "42"}, query={}, headers={}, body=None)
 
         outcome = await execute_code(
@@ -275,7 +298,7 @@ async def test_execute_code_non_2xx_becomes_error_status() -> None:
         mock_spec.document = SPEC
         mock_resolve.return_value = (mock_connector, mock_spec)
 
-        session = MagicMock()
+        session = _magic_db_session()
         params = ExecuteParams(path={"item_id": "99"}, query={}, headers={}, body=None)
 
         outcome = await execute_code(
@@ -329,7 +352,7 @@ async def test_execute_code_sandbox_crash() -> None:
         mock_spec.document = SPEC
         mock_resolve.return_value = (mock_connector, mock_spec)
 
-        session = MagicMock()
+        session = _magic_db_session()
         params = ExecuteParams(path={"item_id": "1"}, query={}, headers={}, body=None)
 
         outcome = await execute_code(
@@ -381,7 +404,7 @@ async def test_execute_code_invalid_json_stdout() -> None:
         mock_spec.document = SPEC
         mock_resolve.return_value = (mock_connector, mock_spec)
 
-        session = MagicMock()
+        session = _magic_db_session()
         params = ExecuteParams(path={"item_id": "1"}, query={}, headers={}, body=None)
 
         outcome = await execute_code(
@@ -424,7 +447,7 @@ async def test_execute_code_operation_not_found() -> None:
         mock_spec.document = SPEC
         mock_resolve.return_value = (mock_connector, mock_spec)
 
-        session = MagicMock()
+        session = _magic_db_session()
         params = ExecuteParams(path={}, query={}, headers={}, body=None)
 
         outcome = await execute_code(

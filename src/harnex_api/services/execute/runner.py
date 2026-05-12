@@ -29,6 +29,8 @@ from harnex_api.db.models import (
     ExecutionMode,
     ExecutionStatus,
 )
+from harnex_api.db.session import session_scope
+from harnex_api.logging import get_logger
 from harnex_api.services.connections import get_connection
 from harnex_api.services.execute.operation import (
     ExecuteParams,
@@ -38,6 +40,7 @@ from harnex_api.services.execute.operation import (
     find_operation,
 )
 from harnex_api.services.execute.sandbox import generate_fetch_script, get_sandbox_runner
+from harnex_api.services.usage.monthly import bump_usage_monthly
 
 _SENSITIVE_HEADER_KEYS = frozenset(
     {
@@ -129,7 +132,7 @@ async def _resolve_connector_and_spec(conn: Any) -> tuple[Any, LoadedSpec | None
     return connector, spec
 
 
-def _record_execution(
+async def _record_execution(
     *,
     session: AsyncSession,
     tenant_id: UUID,
@@ -163,6 +166,12 @@ def _record_execution(
         duration_ms=outcome.duration_ms,
     )
     session.add(row)
+    log = get_logger(__name__)
+    try:
+        async with session_scope() as usage_session:
+            await bump_usage_monthly(usage_session, tenant_id, executions=1)
+    except Exception:
+        log.exception("usage bump failed — ignoring", tenant_id=str(tenant_id))
     return row
 
 
@@ -201,7 +210,7 @@ async def _prepare_execute(
             error_message=operation_id,
             operation_id=operation_id,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -223,7 +232,7 @@ async def _prepare_execute(
             method=op.method,
             path=op.path,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -312,7 +321,7 @@ async def execute_structured(
             method=req.method,
             path=req.path,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -332,7 +341,7 @@ async def execute_structured(
             method=req.method,
             path=req.path,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -362,7 +371,7 @@ async def execute_structured(
         method=req.method,
         path=req.path,
     )
-    _record_execution(
+    await _record_execution(
         session=session,
         tenant_id=tenant_id,
         connection_id=connection_id,
@@ -429,7 +438,7 @@ async def execute_code(
             method=req.method,
             path=req.path,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -456,7 +465,7 @@ async def execute_code(
             method=req.method,
             path=req.path,
         )
-        _record_execution(
+        await _record_execution(
             session=session,
             tenant_id=tenant_id,
             connection_id=connection_id,
@@ -480,7 +489,7 @@ async def execute_code(
         method=req.method,
         path=req.path,
     )
-    _record_execution(
+    await _record_execution(
         session=session,
         tenant_id=tenant_id,
         connection_id=connection_id,
