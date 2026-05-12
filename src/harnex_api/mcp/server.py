@@ -10,6 +10,8 @@ REST routes (under /v1/...) are internal/admin only and are not exposed via MCP.
 from __future__ import annotations
 
 import json
+import time
+from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
@@ -17,11 +19,15 @@ from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Tool as MCPTool
+from sqlalchemy import func, select
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from harnex_api.config import get_settings
+from harnex_api.db.models import Connection
 from harnex_api.db.session import session_scope
+from harnex_api.logging import get_logger
 from harnex_api.services.api_key_auth import ApiKeyAuthError, authenticate_key
 from harnex_api.services.execute.operation import ExecuteParams
 from harnex_api.services.execute.runner import (
@@ -31,6 +37,7 @@ from harnex_api.services.execute.runner import (
     execute_structured,
 )
 from harnex_api.services.search.service import SearchService
+from harnex_api.services.usage.monthly import bump_usage_monthly
 
 # Singleton FastMCP instance — must match the app mounted at `/mcp` so lifespan can run
 # `session_manager.run()` on the same StreamableHTTPSessionManager FastMCP creates.
@@ -61,6 +68,126 @@ def _require_caller() -> _CallerContext:
     return caller
 
 
+def _caller_cache_key(caller: _CallerContext) -> tuple[Any, ...]:
+    return (
+        caller.tenant_id,
+        caller.scope_type,
+        caller.scope_connection_ids,
+    )
+
+
+_SUMMARY_CACHE_TTL_SEC = 30.0
+_SUMMARY_CACHE_MAX_KEYS = 256
+# Bounded LRU-ish cache for tools/list connection blurbs (tenant + key scope).
+_connection_summary_cache: OrderedDict[tuple[Any, ...], tuple[float, str]] = OrderedDict()
+
+
+def _connection_summary_cache_get(key: tuple[Any, ...]) -> str | None:
+    now = time.monotonic()
+    item = _connection_summary_cache.get(key)
+    if item is None:
+        return None
+    inserted, text = item
+    if now - inserted > _SUMMARY_CACHE_TTL_SEC:
+        del _connection_summary_cache[key]
+        return None
+    _connection_summary_cache.move_to_end(key)
+    return text
+
+
+def _connection_summary_cache_set(key: tuple[Any, ...], text: str) -> None:
+    now = time.monotonic()
+    _connection_summary_cache[key] = (now, text)
+    _connection_summary_cache.move_to_end(key)
+    while len(_connection_summary_cache) > _SUMMARY_CACHE_MAX_KEYS:
+        _connection_summary_cache.popitem(last=False)
+
+
+async def _load_connection_summary_block(caller: _CallerContext) -> str:
+    lines: list[str] = []
+    connector_keys: set[str] = set()
+    async with session_scope() as session:
+        where_clause: list[Any] = [Connection.tenant_id == caller.tenant_id]
+        if caller.scope_type != "all":
+            if not caller.scope_connection_ids:
+                return "\n\n".join(
+                    [
+                        "Connections for this API key:",
+                        "This API key is scoped to specific connections, but the allow-list "
+                        "is empty — no connections are visible.",
+                    ]
+                )
+            where_clause.append(Connection.id.in_(caller.scope_connection_ids))
+
+        total = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Connection).where(*where_clause)
+                )
+            ).scalar_one()
+        )
+        stmt = (
+            select(Connection.name, Connection.connector_key, Connection.status)
+            .where(*where_clause)
+            .order_by(Connection.name)
+            .limit(40)
+        )
+        rows = (await session.execute(stmt)).all()
+        if not rows:
+            lines.append(
+                "No connections in scope yet. Add and index a connection in the Harnex "
+                "console; search only returns operations from connections in `ready` state."
+            )
+        else:
+            for name, connector_key, status in rows:
+                key = connector_key or "generic"
+                if connector_key:
+                    connector_keys.add(connector_key)
+                lines.append(f"- {name} ({key}): {status.value}")
+            if len(rows) == 40 and total > 40:
+                lines.append(
+                    f"(and {total - 40} more — use `connector_filter` to narrow scope.)"
+                )
+
+    parts: list[str] = ["Connections for this API key:", "\n".join(lines)]
+    if len(connector_keys) > 1:
+        keys = ", ".join(sorted(connector_keys))
+        parts.append(f"Use connector_filter when disambiguating: {keys}.")
+    return "\n\n".join(parts)
+
+
+async def connection_summary_for_tools_list(caller: _CallerContext) -> str:
+    """Build (cached) text appended to the MCP `search` tool description."""
+    cache_key = _caller_cache_key(caller)
+    cached = _connection_summary_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    text = await _load_connection_summary_block(caller)
+    _connection_summary_cache_set(cache_key, text)
+    return text
+
+
+class HarnexFastMCP(FastMCP):
+    """FastMCP with request-scoped `search` tool descriptions."""
+
+    async def list_tools(self) -> list[MCPTool]:
+        tools = await super().list_tools()
+        caller = _caller_context.get()
+        if caller is None:
+            return tools
+        suffix = await connection_summary_for_tools_list(caller)
+        patched: list[MCPTool] = []
+        for t in tools:
+            if t.name == "search":
+                base = (t.description or "").rstrip()
+                patched.append(
+                    t.model_copy(update={"description": f"{base}\n\n{suffix}"})
+                )
+            else:
+                patched.append(t)
+        return patched
+
+
 def create_mcp_app() -> FastMCP:
     """Build (once) and return the FastMCP instance.
 
@@ -87,7 +214,7 @@ def create_mcp_app() -> FastMCP:
     transport_security = TransportSecuritySettings(allowed_hosts=allowed_hosts)
 
     # Mounted at `/mcp` in `main.py`; Starlette strips that prefix so the inner path is `/`.
-    mcp = FastMCP("harnex", streamable_http_path="/", transport_security=transport_security)
+    mcp = HarnexFastMCP("harnex", streamable_http_path="/", transport_security=transport_security)
 
     @mcp.tool()
     async def search(
@@ -110,6 +237,17 @@ def create_mcp_app() -> FastMCP:
             top_k=top_k,
             connector_filter=connector_filter,
         )
+        log = get_logger(__name__)
+        try:
+            async with session_scope() as usage_session:
+                await bump_usage_monthly(
+                    usage_session,
+                    caller.tenant_id,
+                    searches=1,
+                    embedding_tokens=result.embedding_tokens,
+                )
+        except Exception:
+            log.exception("usage bump failed — ignoring", tenant_id=str(caller.tenant_id))
         return {
             "hits": [
                 {

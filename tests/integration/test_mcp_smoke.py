@@ -86,7 +86,14 @@ async def test_mcp_initialize_returns_capabilities_and_tools(app) -> None:
     mcp = get_mcp_app()
     _ = mcp.streamable_http_app()  # ensure inner app is built
     async with mcp.session_manager.run():
-        with patch("harnex_api.mcp.server.authenticate_key", new_callable=AsyncMock, return_value=fake_auth):
+        with (
+            patch("harnex_api.mcp.server.authenticate_key", new_callable=AsyncMock, return_value=fake_auth),
+            patch(
+                "harnex_api.mcp.server.connection_summary_for_tools_list",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+        ):
             # Use localhost to pass the transport security Host header check.
             asgi_transport = httpx.ASGITransport(app=app)
 

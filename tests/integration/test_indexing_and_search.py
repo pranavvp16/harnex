@@ -12,9 +12,9 @@ async def test_search_service_returns_relevant_chunk():
     emb = FakeEmbeddingProvider(dim=64)
     vs = FakeVectorSearch()
 
-    issues_create_emb = await emb.embed("POST /repos/{owner}/{repo}/issues create issue")
-    issues_list_emb = await emb.embed("GET /repos/{owner}/{repo}/issues list issues")
-    pulls_create_emb = await emb.embed("POST /repos/{owner}/{repo}/pulls create pull request")
+    issues_create_emb = (await emb.embed("POST /repos/{owner}/{repo}/issues create issue")).vector
+    issues_list_emb = (await emb.embed("GET /repos/{owner}/{repo}/issues list issues")).vector
+    pulls_create_emb = (await emb.embed("POST /repos/{owner}/{repo}/pulls create pull request")).vector
 
     for op_id, method, path, summary, vec in [
         ("issues/create", "POST", "/repos/{owner}/{repo}/issues", "Create an issue", issues_create_emb),
@@ -48,8 +48,8 @@ async def test_search_clarification_when_multiple_connectors_match():
     emb = FakeEmbeddingProvider(dim=64)
     vs = FakeVectorSearch()
 
-    gh_emb = await emb.embed("POST /repos/{owner}/{repo}/issues create issue")
-    jenkins_emb = await emb.embed("POST /job/{name}/build create build")
+    gh_emb = (await emb.embed("POST /repos/{owner}/{repo}/issues create issue")).vector
+    jenkins_emb = (await emb.embed("POST /job/{name}/build create build")).vector
 
     vs.register(
         tenant_id="t-multi",

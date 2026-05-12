@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harnex_api.api.dependencies.auth import TenantContext, get_tenant_context
+from harnex_api.api.dependencies.db import get_db
 from harnex_api.api.schemas.search import SearchHitOut, SearchRequest, SearchResponse
+from harnex_api.logging import get_logger
 from harnex_api.services.search.service import SearchService
+from harnex_api.services.usage.monthly import bump_usage_monthly
 
 router = APIRouter(prefix="/v1/search", tags=["search"])
 
@@ -13,6 +17,7 @@ router = APIRouter(prefix="/v1/search", tags=["search"])
 async def search(
     payload: SearchRequest,
     ctx: TenantContext = Depends(get_tenant_context),
+    db: AsyncSession = Depends(get_db),
 ) -> SearchResponse:
     svc = SearchService()
     result = await svc.search(
@@ -21,6 +26,16 @@ async def search(
         top_k=payload.top_k,
         connector_filter=payload.connector_filter,
     )
+    log = get_logger(__name__)
+    try:
+        await bump_usage_monthly(
+            db,
+            ctx.tenant_id,
+            searches=1,
+            embedding_tokens=result.embedding_tokens,
+        )
+    except Exception:
+        log.exception("usage bump failed — ignoring", tenant_id=str(ctx.tenant_id))
     return SearchResponse(
         hits=[
             SearchHitOut(

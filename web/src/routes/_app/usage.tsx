@@ -13,6 +13,8 @@ function UsagePage() {
   const usage = useQuery({
     queryKey: ["usage", "current"],
     queryFn: () => api.getCurrentUsage(),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   if (usage.isLoading) {
