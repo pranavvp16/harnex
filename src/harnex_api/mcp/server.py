@@ -20,7 +20,7 @@ from uuid import UUID
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import Tool as MCPTool
-from sqlalchemy import select
+from sqlalchemy import func, select
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -107,9 +107,7 @@ async def _load_connection_summary_block(caller: _CallerContext) -> str:
     lines: list[str] = []
     connector_keys: set[str] = set()
     async with session_scope() as session:
-        stmt = select(Connection.name, Connection.connector_key, Connection.status).where(
-            Connection.tenant_id == caller.tenant_id
-        )
+        where_clause: list[Any] = [Connection.tenant_id == caller.tenant_id]
         if caller.scope_type != "all":
             if not caller.scope_connection_ids:
                 return "\n\n".join(
@@ -119,8 +117,21 @@ async def _load_connection_summary_block(caller: _CallerContext) -> str:
                         "is empty — no connections are visible.",
                     ]
                 )
-            stmt = stmt.where(Connection.id.in_(caller.scope_connection_ids))
-        stmt = stmt.order_by(Connection.name).limit(40)
+            where_clause.append(Connection.id.in_(caller.scope_connection_ids))
+
+        total = int(
+            (
+                await session.execute(
+                    select(func.count()).select_from(Connection).where(*where_clause)
+                )
+            ).scalar_one()
+        )
+        stmt = (
+            select(Connection.name, Connection.connector_key, Connection.status)
+            .where(*where_clause)
+            .order_by(Connection.name)
+            .limit(40)
+        )
         rows = (await session.execute(stmt)).all()
         if not rows:
             lines.append(
@@ -133,10 +144,9 @@ async def _load_connection_summary_block(caller: _CallerContext) -> str:
                 if connector_key:
                     connector_keys.add(connector_key)
                 lines.append(f"- {name} ({key}): {status.value}")
-            if len(rows) == 40:
+            if len(rows) == 40 and total > 40:
                 lines.append(
-                    "Additional connections may exist beyond this list — use "
-                    "`connector_filter` (e.g. github, jenkins) to narrow scope."
+                    f"(and {total - 40} more — use `connector_filter` to narrow scope.)"
                 )
 
     parts: list[str] = ["Connections for this API key:", "\n".join(lines)]

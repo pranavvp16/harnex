@@ -29,6 +29,8 @@ from harnex_api.db.models import (
     ExecutionMode,
     ExecutionStatus,
 )
+from harnex_api.db.session import session_scope
+from harnex_api.logging import get_logger
 from harnex_api.services.connections import get_connection
 from harnex_api.services.execute.operation import (
     ExecuteParams,
@@ -164,7 +166,12 @@ async def _record_execution(
         duration_ms=outcome.duration_ms,
     )
     session.add(row)
-    await bump_usage_monthly(session, tenant_id, executions=1)
+    log = get_logger(__name__)
+    try:
+        async with session_scope() as usage_session:
+            await bump_usage_monthly(usage_session, tenant_id, executions=1)
+    except Exception:
+        log.exception("usage bump failed — ignoring", tenant_id=str(tenant_id))
     return row
 
 

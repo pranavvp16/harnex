@@ -109,6 +109,21 @@ def _magic_db_session() -> MagicMock:
     return s
 
 
+@pytest.fixture(autouse=True)
+def patch_execute_usage_session_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """execute_code records usage via ``session_scope``; stub it so unit tests skip Postgres."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_scope() -> Any:
+        yield _magic_db_session()
+
+    monkeypatch.setattr(
+        "harnex_api.services.execute.runner.session_scope",
+        fake_scope,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
