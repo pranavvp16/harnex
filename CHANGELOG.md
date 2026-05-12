@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0.0] - 2026-05-12
+
+### Added
+
+- **Connection-aware MCP search context**: The `search` tool description now includes a live summary of the caller's connections (names, connectors, statuses) so agents know what APIs are available before querying. Cached per-tenant with 30-second TTL.
+- **Usage tracking**: New `usage_monthly` counters atomically increment on every search and execution via PostgreSQL `INSERT ... ON CONFLICT` upsert. Tracks `executions`, `searches`, and `embedding_tokens` per tenant per month.
+- **MCP usage metering**: `search` and `execute` MCP tools now bump tenant usage counters automatically.
+- **REST usage metering**: `GET /v1/search` and execution paths now record usage for quota enforcement.
+
+### Changed
+
+- **`_record_execution`** in `runner.py` is now `async` and bumps usage inline; all callers updated to `await`.
+- **Usage route** refactored to share `current_year_month_utc()` with the usage service.
+- **Dashboard/Usage pages** refresh usage data on window focus for real-time quota display.
+
+### Fixed
+
+- **MCP integration test**: Mocked `connection_summary_for_tools_list` so `tools/list` smoke tests pass without a live database.
+
 ## [0.1.0.0] - 2026-05-08
 
 ### Added
