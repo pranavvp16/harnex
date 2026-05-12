@@ -36,6 +36,7 @@ from harnex_api.services.execute.runner import (
     execute_structured,
 )
 from harnex_api.services.search.service import SearchService
+from harnex_api.services.usage.monthly import bump_usage_monthly
 
 # Singleton FastMCP instance — must match the app mounted at `/mcp` so lifespan can run
 # `session_manager.run()` on the same StreamableHTTPSessionManager FastMCP creates.
@@ -220,6 +221,8 @@ def create_mcp_app() -> FastMCP:
             top_k=top_k,
             connector_filter=connector_filter,
         )
+        async with session_scope() as usage_session:
+            await bump_usage_monthly(usage_session, caller.tenant_id, searches=1)
         return {
             "hits": [
                 {
