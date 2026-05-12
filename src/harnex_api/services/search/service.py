@@ -15,6 +15,7 @@ class SearchResponse:
     hits: list[SearchHit]
     clarification_needed: bool
     candidate_connectors: list[str]
+    embedding_tokens: int
 
 
 class SearchService:
@@ -38,7 +39,7 @@ class SearchService:
         embedding = await self._embeddings.embed(query)
         hits = await self._search.search(
             tenant_id=tenant_id,
-            embedding=embedding,
+            embedding=embedding.vector,
             query_text=query,
             top_k=top_k,
             connector_filter=connector_filter,
@@ -49,6 +50,7 @@ class SearchService:
             hits=hits,
             clarification_needed=clarification,
             candidate_connectors=sorted(connectors_in_top),
+            embedding_tokens=embedding.prompt_tokens,
         )
 
 

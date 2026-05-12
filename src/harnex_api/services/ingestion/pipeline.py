@@ -145,7 +145,7 @@ async def index_spec(
     await session.flush()
 
     if chunks:
-        vectors = await emb.embed_batch([c.embedding_text for c in chunks])
+        vectors, _embedding_tokens = await emb.embed_batch([c.embedding_text for c in chunks])
         if len(vectors) != len(chunks):
             raise RuntimeError("embedding count does not match chunk count")
         for chunk, vec in zip(chunks, vectors, strict=True):

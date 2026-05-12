@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
+from dataclasses import dataclass
 from typing import Protocol
 
 from harnex_api.config import get_settings
@@ -14,11 +15,24 @@ _EMBED_BATCH_SIZE = 64
 _EMBED_MAX_ATTEMPTS = 3
 
 
+def _rough_prompt_tokens(text: str) -> int:
+    """Cheap local estimate when the provider does not return API usage (fake / tests)."""
+    return max(1, len(text) // 4)
+
+
+@dataclass(frozen=True)
+class EmbedResult:
+    """Single-text embed: vector plus billable prompt tokens (API usage or fake heuristic)."""
+
+    vector: list[float]
+    prompt_tokens: int
+
+
 class EmbeddingProvider(Protocol):
     dim: int
 
-    async def embed(self, text: str) -> list[float]: ...
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]: ...
+    async def embed(self, text: str) -> EmbedResult: ...
+    async def embed_batch(self, texts: list[str]) -> tuple[list[list[float]], int]: ...
     @property
     def model_name(self) -> str: ...
 
@@ -39,11 +53,14 @@ class FakeEmbeddingProvider:
     def model_name(self) -> str:
         return f"fake-{self.dim}"
 
-    async def embed(self, text: str) -> list[float]:
-        return self._embed(text)
+    async def embed(self, text: str) -> EmbedResult:
+        vectors, tokens = await self.embed_batch([text])
+        return EmbedResult(vector=vectors[0], prompt_tokens=tokens)
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        return [self._embed(t) for t in texts]
+    async def embed_batch(self, texts: list[str]) -> tuple[list[list[float]], int]:
+        vectors = [self._embed(t) for t in texts]
+        prompt_tokens = sum(_rough_prompt_tokens(t) for t in texts) if texts else 0
+        return vectors, prompt_tokens
 
     def _embed(self, text: str) -> list[float]:
         # Word-level bag of hashes — simple but gives reasonable similarity
@@ -84,20 +101,26 @@ class OpenAIEmbeddings:
             self._client = AsyncOpenAI(api_key=self.api_key)
         return self._client
 
-    async def embed(self, text: str) -> list[float]:
-        result = await self.embed_batch([text])
-        return result[0]
+    async def embed(self, text: str) -> EmbedResult:
+        vectors, tokens = await self.embed_batch([text])
+        return EmbedResult(vector=vectors[0], prompt_tokens=tokens)
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str]) -> tuple[list[list[float]], int]:
         if not texts:
-            return []
+            return [], 0
         client = self._get_client()
         out: list[list[float]] = []
+        total_tokens = 0
         for start in range(0, len(texts), _EMBED_BATCH_SIZE):
             chunk = texts[start : start + _EMBED_BATCH_SIZE]
             resp = await self._embed_chunk_with_retry(client, chunk)
             out.extend(item.embedding for item in resp.data)
-        return out
+            usage = getattr(resp, "usage", None)
+            if usage is not None and getattr(usage, "total_tokens", None) is not None:
+                total_tokens += int(usage.total_tokens)
+            else:
+                total_tokens += sum(_rough_prompt_tokens(t) for t in chunk)
+        return out, total_tokens
 
     async def _embed_chunk_with_retry(self, client: object, chunk: list[str]):  # type: ignore[no-untyped-def]
         last_exc: Exception | None = None
@@ -141,6 +164,7 @@ def get_embedding_provider() -> EmbeddingProvider:
 
 
 __all__ = [
+    "EmbedResult",
     "EmbeddingProvider",
     "FakeEmbeddingProvider",
     "OpenAIEmbeddings",

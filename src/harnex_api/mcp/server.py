@@ -27,6 +27,7 @@ from starlette.responses import JSONResponse, Response
 from harnex_api.config import get_settings
 from harnex_api.db.models import Connection
 from harnex_api.db.session import session_scope
+from harnex_api.logging import get_logger
 from harnex_api.services.api_key_auth import ApiKeyAuthError, authenticate_key
 from harnex_api.services.execute.operation import ExecuteParams
 from harnex_api.services.execute.runner import (
@@ -132,6 +133,11 @@ async def _load_connection_summary_block(caller: _CallerContext) -> str:
                 if connector_key:
                     connector_keys.add(connector_key)
                 lines.append(f"- {name} ({key}): {status.value}")
+            if len(rows) == 40:
+                lines.append(
+                    "Additional connections may exist beyond this list — use "
+                    "`connector_filter` (e.g. github, jenkins) to narrow scope."
+                )
 
     parts: list[str] = ["Connections for this API key:", "\n".join(lines)]
     if len(connector_keys) > 1:
@@ -221,8 +227,17 @@ def create_mcp_app() -> FastMCP:
             top_k=top_k,
             connector_filter=connector_filter,
         )
-        async with session_scope() as usage_session:
-            await bump_usage_monthly(usage_session, caller.tenant_id, searches=1)
+        log = get_logger(__name__)
+        try:
+            async with session_scope() as usage_session:
+                await bump_usage_monthly(
+                    usage_session,
+                    caller.tenant_id,
+                    searches=1,
+                    embedding_tokens=result.embedding_tokens,
+                )
+        except Exception:
+            log.exception("usage bump failed — ignoring", tenant_id=str(caller.tenant_id))
         return {
             "hits": [
                 {
