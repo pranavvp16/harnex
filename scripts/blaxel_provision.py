@@ -33,13 +33,6 @@ def _load_dotenv() -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
-NODE_SANDBOX_NAME = os.environ.get("BLAXEL_SANDBOX_NAME", "harnex-execute")
-NODE_SANDBOX_IMAGE = os.environ.get("BLAXEL_SANDBOX_IMAGE", "blaxel/node:latest")
-PY_SANDBOX_NAME = os.environ.get("BLAXEL_PYTHON_SANDBOX_NAME", "harnex-execute-py")
-PY_SANDBOX_IMAGE = os.environ.get("BLAXEL_PYTHON_SANDBOX_IMAGE", "blaxel/py-app:latest")
-SANDBOX_MEMORY_MB = int(os.environ.get("BLAXEL_SANDBOX_MEMORY_MB", "2048"))
-SANDBOX_REGION = os.environ.get("BLAXEL_SANDBOX_REGION", "us-pdx-1")
-
 # Python skill dependencies — installed once per sandbox lifetime; pip is no-op
 # when these are already present at compatible versions.
 PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx"]
@@ -47,18 +40,34 @@ PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx"]
 NODE_SKILL_PACKAGES = ["docx"]
 
 
+class _SandboxConfig:
+    """Resolved sandbox settings — read *after* .env has been loaded."""
+
+    def __init__(self) -> None:
+        self.node_name = os.environ.get("BLAXEL_SANDBOX_NAME", "harnex-execute")
+        self.node_image = os.environ.get("BLAXEL_SANDBOX_IMAGE", "blaxel/node:latest")
+        self.py_name = os.environ.get("BLAXEL_PYTHON_SANDBOX_NAME", "harnex-execute-py")
+        self.py_image = os.environ.get(
+            "BLAXEL_PYTHON_SANDBOX_IMAGE", "blaxel/py-app:latest"
+        )
+        self.memory_mb = int(os.environ.get("BLAXEL_SANDBOX_MEMORY_MB", "2048"))
+        self.region = os.environ.get("BLAXEL_SANDBOX_REGION", "us-pdx-1")
+
+
 async def _provision(
     sandbox_cls: Any,
     *,
     name: str,
     image: str,
+    memory_mb: int,
+    region: str,
 ) -> Any:
     sandbox = await sandbox_cls.create_if_not_exists(
         {
             "name": name,
             "image": image,
-            "memory": SANDBOX_MEMORY_MB,
-            "region": SANDBOX_REGION,
+            "memory": memory_mb,
+            "region": region,
         }
     )
     print(f"sandbox ready: {name} ({image})")
@@ -127,6 +136,11 @@ async def _install_python_packages(sandbox: Any) -> None:
 
 async def main() -> int:
     _load_dotenv()
+    # Resolve sandbox settings after .env has been loaded; otherwise overrides
+    # like BLAXEL_PYTHON_SANDBOX_NAME placed in .env would be missed here while
+    # the running API (which reads them via pydantic settings) sees them.
+    cfg = _SandboxConfig()
+
     if "BL_API_KEY" not in os.environ and os.environ.get("BLAXEL_API_KEY"):
         os.environ["BL_API_KEY"] = os.environ["BLAXEL_API_KEY"]
     if "BL_WORKSPACE" not in os.environ:
@@ -142,13 +156,21 @@ async def main() -> int:
     from blaxel.core import SandboxInstance
 
     node_sandbox = await _provision(
-        SandboxInstance, name=NODE_SANDBOX_NAME, image=NODE_SANDBOX_IMAGE
+        SandboxInstance,
+        name=cfg.node_name,
+        image=cfg.node_image,
+        memory_mb=cfg.memory_mb,
+        region=cfg.region,
     )
     await _smoke_node(node_sandbox)
     await _install_node_packages(node_sandbox)
 
     py_sandbox = await _provision(
-        SandboxInstance, name=PY_SANDBOX_NAME, image=PY_SANDBOX_IMAGE
+        SandboxInstance,
+        name=cfg.py_name,
+        image=cfg.py_image,
+        memory_mb=cfg.memory_mb,
+        region=cfg.region,
     )
     await _smoke_python(py_sandbox)
     await _install_python_packages(py_sandbox)

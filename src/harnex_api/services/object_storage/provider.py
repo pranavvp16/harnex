@@ -32,9 +32,19 @@ def get_object_storage() -> ObjectStorage:
         _singleton = AzureBlobStorage(
             account_name=account, account_key=key, container=container
         )
+    elif settings.env in ("staging", "prod"):
+        # LocalFilesystemStorage writes to one pod's ephemeral disk — the public
+        # download URL it mints will 404 on any other replica or after a restart.
+        # Mirror the Infisical fail-fast in main.lifespan: refuse to start with a
+        # silently broken artifact backend.
+        raise RuntimeError(
+            "Azure Blob Storage is required in staging/prod. Set "
+            "HARNEX_AZURE_STORAGE_ACCOUNT and HARNEX_AZURE_STORAGE_KEY."
+        )
     else:
         _log.warning(
             "object_storage_local_fallback",
+            env=settings.env,
             hint="set HARNEX_AZURE_STORAGE_ACCOUNT + HARNEX_AZURE_STORAGE_KEY for production",
         )
         _singleton = LocalFilesystemStorage()
