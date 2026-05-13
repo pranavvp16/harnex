@@ -425,7 +425,16 @@ class WebSessionService:
         latest.claims_cache = tokens.claims
         latest.access_token_expires_at = tokens.access_token_expires_at
         latest.refresh_token_expires_at = tokens.refresh_token_expires_at
-        await self._db.flush()
+        # Commit (not just flush) — Keycloak has already side-effected: it
+        # issued new tokens and invalidated the old RT under refresh-token
+        # rotation. If the route body subsequently raises and `get_db` rolls
+        # back, the DB would still hold the now-dead old RT. The next
+        # request's refresh attempt would return `invalid_grant`, the
+        # reuse-detection path would fire `_revoke()`, and the user gets
+        # permanently logged out for an unrelated server error.
+        # Releasing the FOR UPDATE lock here is fine — rotation is complete,
+        # and any tab waiting on the lock will read the freshly-rotated tokens.
+        await self._db.commit()
         return latest
 
     async def _revoke(self, row: WebSession, *, reason: str) -> None:
