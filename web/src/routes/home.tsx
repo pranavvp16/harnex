@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Moon, Sun } from "lucide-react";
 
+import { McpInstallSnippets } from "@/components/McpInstallSnippets";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 
@@ -355,7 +356,57 @@ function MarketingPage() {
         >
           <HarnexLogo size={22} />
           <nav className="marketing-nav">
-            {["The Problem", "How it works", "Use cases", "Security", "Pricing"].map((l) => (
+            <a
+              href="#the-problem"
+              style={{
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: "var(--slate)",
+                padding: "5px 10px",
+                borderRadius: "var(--r-sm)",
+                transition: "color 80ms",
+                textDecoration: "none",
+              }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--ink)")}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--slate)")}
+            >
+              The Problem
+            </a>
+            <Link
+              to="/skills"
+              style={{
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: "var(--slate)",
+                padding: "5px 10px",
+                borderRadius: "var(--r-sm)",
+                transition: "color 80ms",
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--slate)")}
+            >
+              Skills
+              <span
+                style={{
+                  fontSize: 9.5,
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: "var(--accent-soft)",
+                  color: "var(--accent-ink)",
+                  border: "1px solid var(--accent-border)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  fontWeight: 600,
+                }}
+              >
+                New
+              </span>
+            </Link>
+            {["How it works", "Use cases", "Security", "Pricing"].map((l) => (
               <a
                 key={l}
                 href={`#${l.toLowerCase().replace(/ /g, "-")}`}
@@ -500,7 +551,7 @@ function MarketingPage() {
           }}
         >
           <span style={{ color: "var(--muted)" }}>$</span>
-          <span>npx harnex-mcp --url https://api.harnex.dev --key hx_…</span>
+          <span>HTTPS MCP · https://api.harnex.dev/mcp · Authorization: Bearer hnx…</span>
         </div>
 
         {/* Console preview */}
@@ -1291,6 +1342,47 @@ function MarketingPage() {
                 </Link>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Drop-in MCP client install ── */}
+      <section id="install">
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+          <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>Drop in anywhere</div>
+          <h2
+            style={{
+              fontSize: 36,
+              fontWeight: 600,
+              letterSpacing: "-0.03em",
+              textAlign: "center",
+              margin: "0 0 12px",
+              color: "var(--ink)",
+            }}
+          >
+            One MCP server.{" "}
+            <span className="serif-i" style={{ color: "var(--accent)" }}>Every</span>
+            {" "}client.
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              fontSize: 15,
+              color: "var(--slate)",
+              maxWidth: 560,
+              margin: "0 auto 36px",
+              lineHeight: 1.65,
+            }}
+          >
+            Copy the snippet for your runtime. Replace the key with one you issue from your console.
+          </p>
+          <div style={{ maxWidth: 760, margin: "0 auto" }}>
+            <McpInstallSnippets
+              apiUrl="https://api.harnex.dev/mcp"
+              apiKey="hnx_YOUR_KEY"
+              compact
+              hideTitle
+            />
           </div>
         </div>
       </section>
