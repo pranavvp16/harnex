@@ -86,3 +86,29 @@ async def test_skills_opt_in_picks_xlsx_for_spreadsheet_query(
         include_skills=True,
     )
     assert result.skills[0].skill_key == "xlsx"
+
+
+async def test_skills_opt_in_suppresses_api_hits(
+    skill_search: FakeSkillVectorSearch,
+) -> None:
+    """``include_skills=True`` is exclusive — API hits / clarification are dropped."""
+
+    class _NoisyVectorSearch(FakeVectorSearch):
+        async def search(self, **_: object) -> list:  # type: ignore[override]
+            raise AssertionError("API search must not run when include_skills=True")
+
+    svc = SearchService(
+        embeddings=FakeEmbeddingProvider(dim=64),
+        vector_search=_NoisyVectorSearch(),
+        skill_search=skill_search,
+    )
+    result = await svc.search(
+        tenant_id="t1",
+        query="build a pdf report",
+        include_skills=True,
+    )
+    assert result.hits == []
+    assert result.clarification_needed is False
+    assert result.candidate_connectors == []
+    assert len(result.skills) == 1
+    assert result.skills[0].skill_key == "pdf"

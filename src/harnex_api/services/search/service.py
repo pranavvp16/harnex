@@ -52,6 +52,22 @@ class SearchService:
         include_skills: bool = False,
     ) -> SearchResponse:
         embedding = await self._embeddings.embed(query)
+        # Skill mode is deliberate ("I want a file"). Skip the API search entirely
+        # so the caller isn't drowning in low-relevance HTTP operations next to
+        # the one skill that actually matches.
+        if include_skills:
+            skills = await self._skill_search.search(
+                embedding=embedding.vector,
+                query_text=query,
+                top_k=SKILL_TOP_K,
+            )
+            return SearchResponse(
+                hits=[],
+                clarification_needed=False,
+                candidate_connectors=[],
+                embedding_tokens=embedding.prompt_tokens,
+                skills=skills,
+            )
         hits = await self._search.search(
             tenant_id=tenant_id,
             embedding=embedding.vector,
@@ -59,15 +75,6 @@ class SearchService:
             top_k=top_k,
             connector_filter=connector_filter,
         )
-        skills: list[SkillHit] = []
-        if include_skills:
-            # The agent opted in. We don't second-guess with thresholds — return
-            # the closest skill so it has something to work with.
-            skills = await self._skill_search.search(
-                embedding=embedding.vector,
-                query_text=query,
-                top_k=SKILL_TOP_K,
-            )
         connectors_in_top = {h.connector_key for h in hits[:CLARIFICATION_TOP_N] if h.connector_key}
         clarification = connector_filter is None and len(connectors_in_top) > 1 and len(hits) > 1
         return SearchResponse(
@@ -75,7 +82,7 @@ class SearchService:
             clarification_needed=clarification,
             candidate_connectors=sorted(connectors_in_top),
             embedding_tokens=embedding.prompt_tokens,
-            skills=skills,
+            skills=[],
         )
 
 
