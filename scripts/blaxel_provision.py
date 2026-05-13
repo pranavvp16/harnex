@@ -48,9 +48,7 @@ class _SandboxConfig:
         self.node_name = os.environ.get("BLAXEL_SANDBOX_NAME", "harnex-execute")
         self.node_image = os.environ.get("BLAXEL_SANDBOX_IMAGE", "blaxel/node:latest")
         self.py_name = os.environ.get("BLAXEL_PYTHON_SANDBOX_NAME", "harnex-execute-py")
-        self.py_image = os.environ.get(
-            "BLAXEL_PYTHON_SANDBOX_IMAGE", "blaxel/py-app:latest"
-        )
+        self.py_image = os.environ.get("BLAXEL_PYTHON_SANDBOX_IMAGE", "blaxel/py-app:latest")
         self.memory_mb = int(os.environ.get("BLAXEL_SANDBOX_MEMORY_MB", "2048"))
         self.region = os.environ.get("BLAXEL_SANDBOX_REGION", "us-pdx-1")
 
@@ -108,7 +106,7 @@ async def _install_node_packages(sandbox: Any) -> None:
 async def _smoke_python(sandbox: Any) -> None:
     proc = await sandbox.process.exec(
         {
-            "command": "python3 -c 'import sys,json;print(json.dumps({\"ok\":True,\"py\":sys.version}))'",
+            "command": 'python3 -c \'import sys,json;print(json.dumps({"ok":True,"py":sys.version}))\'',
             "wait_for_completion": True,
         }
     )
