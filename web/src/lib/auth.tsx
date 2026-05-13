@@ -79,7 +79,7 @@ function buildUserManager(): UserManager | null {
     response_type: "code",
     scope: "openid profile email",
     automaticSilentRenew: true,
-    userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+    userStore: new WebStorageStateStore({ store: window.localStorage }),
     monitorSession: false,
   });
 }

@@ -125,6 +125,12 @@ function OnboardingPage() {
     setStep(1);
   };
 
+  useEffect(() => {
+    if (auth.status === "authenticated" && step === 1 && signInMode) {
+      void navigate({ to: "/dashboard" });
+    }
+  }, [auth.status, step, signInMode, navigate]);
+
   const handleEmailSignInContinue = async () => {
     setSignInError(null);
     setSignInBusy(true);
@@ -135,7 +141,6 @@ function OnboardingPage() {
       });
       // Existing users skip onboarding entirely. If they somehow have no
       // workspace, the /_app guard will catch it and redirect them.
-      void navigate({ to: "/dashboard" });
     } catch (err) {
       setSignInError(
         err instanceof AuthError ? err.message : "Sign-in failed. Please try again.",

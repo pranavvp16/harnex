@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -20,13 +20,18 @@ function LoginPage() {
   const [providerBusy, setProviderBusy] = useState<IdpHint | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (auth.status === "authenticated") {
+      void navigate({ to: "/" });
+    }
+  }, [auth.status, navigate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
       await auth.signInWithPassword({ email: email.trim(), password });
-      void navigate({ to: "/" });
     } catch (err) {
       setError(err instanceof AuthError ? err.message : "Sign in failed");
     } finally {
