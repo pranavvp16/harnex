@@ -12,7 +12,7 @@ import hashlib
 import hmac
 import time
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 from uuid import UUID
@@ -106,7 +106,7 @@ class LocalFilesystemStorage:
         content_type: str,
         ttl_seconds: int,
     ) -> UploadResult:
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         safe_name = _safe_filename(filename)
         artifact_id = uuid.uuid4().hex
         storage_key = (
