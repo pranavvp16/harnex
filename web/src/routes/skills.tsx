@@ -107,6 +107,12 @@ const SKILL_PPTX: Skill = {
 
 const SKILLS: readonly Skill[] = [SKILL_PDF, SKILL_DOCX, SKILL_XLSX, SKILL_PPTX];
 
+/** Public repo docs — README (stack, MCP smoke, local dev). */
+const HARNEX_REPO_README =
+  "https://github.com/pranavvp16/harnex/blob/main/README.md";
+/** Developer / MCP surface spec shipped in-repo. */
+const HARNEX_DEV_SPEC = "https://github.com/pranavvp16/harnex/blob/main/CLAUDE.md";
+
 const FLOW_STEPS = [
   {
     n: "01",
@@ -223,9 +229,9 @@ function SkillsMarketingPage() {
 
         <SkillsHero isAuthed={isAuthed} />
         <SkillsFlow />
-        <SkillsCatalog />
+        <SkillsCatalog isAuthed={isAuthed} />
         <SkillsFiles />
-        <SkillsCallout />
+        <SkillsCallout isAuthed={isAuthed} />
 
         <footer style={{ borderTop: "1px solid var(--border)", marginTop: "auto" }}>
           <div
@@ -243,13 +249,24 @@ function SkillsMarketingPage() {
               <span style={{ fontSize: 12, color: "var(--muted)" }}>© {new Date().getFullYear()}</span>
             </div>
             <nav style={{ display: "flex", gap: 16 }}>
-              {["Docs", "Changelog", "Status", "Privacy", "Terms"].map((l) => (
+              {(
+                [
+                  ["Docs", HARNEX_REPO_README],
+                  ["Changelog", "https://github.com/pranavvp16/harnex/releases"],
+                  ["Status", HARNEX_REPO_README],
+                  ["Privacy", "#"],
+                  ["Terms", "#"],
+                ] as const
+              ).map(([label, href]) => (
                 <a
-                  key={l}
-                  href="#"
+                  key={label}
+                  href={href}
+                  {...(href.startsWith("http")
+                    ? { target: "_blank", rel: "noopener noreferrer" }
+                    : {})}
                   style={{ fontSize: 13, color: "var(--muted)", fontWeight: 500, textDecoration: "none" }}
                 >
-                  {l}
+                  {label}
                 </a>
               ))}
             </nav>
@@ -359,7 +376,9 @@ function SkillsHeader({
             </Link>
           ))}
           <a
-            href="#docs"
+            href={HARNEX_REPO_README}
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               fontSize: 13.5,
               fontWeight: 500,
@@ -382,12 +401,12 @@ function SkillsHeader({
             {theme === "dark" ? <Sun size={13} /> : <Moon size={13} />}
           </button>
           {isAuthed ? (
-            <Link to="/dashboard">
-              <button className="btn btn-ghost btn-sm">Console →</button>
+            <Link to="/dashboard" className="btn btn-ghost btn-sm">
+              Console →
             </Link>
           ) : (
-            <Link to="/onboarding">
-              <button className="btn btn-accent btn-sm">Get started →</button>
+            <Link to="/onboarding" className="btn btn-accent btn-sm">
+              Get started →
             </Link>
           )}
         </div>
@@ -400,16 +419,12 @@ function SkillsHeader({
 
 function SkillsHero({ isAuthed }: { isAuthed: boolean }) {
   const cta = isAuthed ? (
-    <Link to="/dashboard">
-      <button className="btn btn-primary btn-lg">
-        Try it in the console <ArrowRight size={14} />
-      </button>
+    <Link to="/dashboard" className="btn btn-primary btn-lg">
+      Try it in the console <ArrowRight size={14} />
     </Link>
   ) : (
-    <Link to="/onboarding">
-      <button className="btn btn-primary btn-lg">
-        Try it in the console <ArrowRight size={14} />
-      </button>
+    <Link to="/onboarding" className="btn btn-primary btn-lg">
+      Try it in the console <ArrowRight size={14} />
     </Link>
   );
 
@@ -467,9 +482,14 @@ function SkillsHero({ isAuthed }: { isAuthed: boolean }) {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 56, flexWrap: "wrap" }}>
         {cta}
-        <button className="btn btn-ghost btn-lg">
+        <a
+          className="btn btn-ghost btn-lg"
+          href={HARNEX_DEV_SPEC}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
           <BookOpen size={14} /> Read the spec
-        </button>
+        </a>
         <span style={{ fontSize: 13, color: "var(--muted)" }}>
           <InlineMono size={11.5}>npm i @harnex/mcp@0.4</InlineMono>
         </span>
@@ -771,7 +791,8 @@ function SkillsFlow() {
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
-function SkillsCatalog() {
+function SkillsCatalog({ isAuthed }: { isAuthed: boolean }) {
+  const tryTo = isAuthed ? "/dashboard" : "/onboarding";
   return (
     <section style={SECTION_PAD}>
       <div
@@ -898,10 +919,8 @@ function SkillsCatalog() {
               </span>
               <span className="mono" style={{ fontSize: 12, color: "var(--ink)" }}>{s.sampleName}</span>
               <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>{s.size}</span>
-              <Link to="/onboarding" style={{ marginLeft: "auto" }}>
-                <button className="btn btn-ghost btn-sm">
-                  Try {s.name} <ArrowRight size={12} />
-                </button>
+              <Link to={tryTo} className="btn btn-ghost btn-sm" style={{ marginLeft: "auto" }}>
+                Try {s.name} <ArrowRight size={12} />
               </Link>
             </div>
           </article>
@@ -980,10 +999,8 @@ function SkillsFiles() {
               </li>
             ))}
           </ul>
-          <Link to="/files">
-            <button className="btn btn-primary">
-              Open Files in console <ArrowRight size={14} />
-            </button>
+          <Link to="/files" className="btn btn-primary">
+            Open Files in console <ArrowRight size={14} />
           </Link>
         </div>
 
@@ -1157,7 +1174,8 @@ function FilesMock() {
 
 // ── Callout ───────────────────────────────────────────────────────────────────
 
-function SkillsCallout() {
+function SkillsCallout({ isAuthed }: { isAuthed: boolean }) {
+  const startTo = isAuthed ? "/dashboard" : "/onboarding";
   return (
     <section style={SECTION_PAD}>
       <div
@@ -1192,13 +1210,16 @@ function SkillsCallout() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button className="btn btn-ghost btn-lg">
+          <a
+            className="btn btn-ghost btn-lg"
+            href={HARNEX_REPO_README}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <BookOpen size={14} /> View docs
-          </button>
-          <Link to="/onboarding">
-            <button className="btn btn-accent btn-lg">
-              Get started <ArrowRight size={14} />
-            </button>
+          </a>
+          <Link to={startTo} className="btn btn-accent btn-lg">
+            Get started <ArrowRight size={14} />
           </Link>
         </div>
       </div>
