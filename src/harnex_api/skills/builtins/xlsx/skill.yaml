@@ -1,0 +1,14 @@
+key: xlsx
+name: Excel Spreadsheet Builder
+runtime: python
+output_format: xlsx
+overview: >-
+  Build Excel workbooks (.xlsx) with one or more sheets, formulas, formatting,
+  and charts using openpyxl. Produces a downloadable spreadsheet file. Use when
+  the user asks for a spreadsheet, Excel file, .xlsx, exported tabular data,
+  or wants to "export as Excel".
+metadata:
+  mime_type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+  libraries:
+    - openpyxl
+  max_output_bytes: 26214400

@@ -36,6 +36,11 @@ from harnex_api.services.execute.runner import (
     execute_code,
     execute_structured,
 )
+from harnex_api.services.execute.skill_runner import (
+    SkillNotFoundError,
+    _ensure_outcome_envelope,
+    execute_skill,
+)
 from harnex_api.services.search.service import SearchService
 from harnex_api.services.usage.monthly import bump_usage_monthly
 
@@ -218,7 +223,10 @@ def create_mcp_app() -> FastMCP:
 
     @mcp.tool()
     async def search(
-        query: str, top_k: int = 10, connector_filter: str | None = None
+        query: str,
+        top_k: int = 10,
+        connector_filter: str | None = None,
+        skills: bool = False,
     ) -> dict[str, Any]:
         """Semantic search across the connected APIs for this tenant.
 
@@ -228,6 +236,16 @@ def create_mcp_app() -> FastMCP:
         caller can ask the user which platform they meant.
 
         Pass `connector_filter` (e.g. "github", "jenkins") to narrow scope.
+
+        **Skills.** Harnex also ships document-building skills for PDF, Word
+        (.docx), Excel (.xlsx), and PowerPoint (.pptx). Pass `skills=true` when
+        the user wants to *produce a file* — e.g. "build a PDF report",
+        "export users as xlsx", "make a slide deck", "draft a Word memo". The
+        response then includes a top-matching skill under `skills[]` with the
+        full instructions inline; use those instructions to write code, then
+        call `execute` with `skill_key="<key>"` and `code="<your code>"`. The
+        generated file is uploaded to tenant-isolated storage and `execute`
+        returns a short-lived download URL.
         """
         caller = _require_caller()
         svc = SearchService()
@@ -236,6 +254,7 @@ def create_mcp_app() -> FastMCP:
             query=query,
             top_k=top_k,
             connector_filter=connector_filter,
+            include_skills=skills,
         )
         log = get_logger(__name__)
         try:
@@ -263,26 +282,47 @@ def create_mcp_app() -> FastMCP:
             ],
             "clarification_needed": result.clarification_needed,
             "candidate_connectors": result.candidate_connectors,
+            "skills": [
+                {
+                    "skill_key": s.skill_key,
+                    "name": s.name,
+                    "runtime": s.runtime,
+                    "output_format": s.output_format,
+                    "instructions": s.instructions,
+                    "score": s.score,
+                }
+                for s in result.skills
+            ],
         }
 
     @mcp.tool()
     async def execute(
-        connection_id: str,
-        operation_id: str,
+        connection_id: str | None = None,
+        operation_id: str | None = None,
         path_params: dict[str, Any] | None = None,
         query: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         body: Any = None,
         mode: str = "structured",
+        skill_key: str | None = None,
+        code: str | None = None,
     ) -> dict[str, Any]:
-        """Invoke any operation on a connected API — read, write, mutate.
+        """Invoke any operation on a connected API — or run a document-building skill.
 
-        Use this to take actions on the user's behalf against any connector
-        (`github`, `jenkins`, custom OpenAPI, bare URLs). Auth, base URLs, and
-        request shaping come from the stored `Connection`; you only supply the
-        operation params. Pair with `search` to discover `operation_id`s.
+        Two modes, picked by which arguments you pass:
 
-        Inputs:
+        **API mode** (default): pass `connection_id` + `operation_id` from a
+        prior `search` hit; the call is dispatched against the connected API.
+
+        **Skill mode**: pass `skill_key` (e.g. "pdf", "docx", "xlsx", "pptx")
+        + `code`. The code runs in an isolated Blaxel sandbox using the skill's
+        runtime (Node.js for docx, Python for pdf/xlsx/pptx). Write your file
+        to `$HARNEX_OUTPUT_DIR/<name>.<ext>`; the runner uploads it to
+        tenant-isolated storage and returns a short-TTL `download_url` you can
+        hand to the user. The full SKILL.md (returned by `search(skills=true)`)
+        explains the contract — follow it.
+
+        Inputs (API mode):
           - `connection_id`, `operation_id`: from a prior `search` hit.
           - `path_params`: values for `{...}` placeholders in the operation path
             (e.g. `{"owner": "octocat", "repo": "hello-world"}`).
@@ -290,26 +330,56 @@ def create_mcp_app() -> FastMCP:
           - `headers`: extra request headers (auth headers are injected
             automatically — do not duplicate).
           - `body`: JSON request body for POST/PUT/PATCH operations.
-          - `mode`: execution path.
-            * `"structured"` (default): server-side `httpx` call. Fastest, most
-              reliable. Use for the vast majority of calls.
-            * `"code"`: the request runs as a Node.js `fetch` script inside an
-              isolated Blaxel sandbox. Use when you need sandboxed network
-              egress (e.g. running untrusted webhooks, verifying behavior under
-              a sandboxed runtime, or adding sandbox-side validation in future
-              iterations). Functionally equivalent to structured for plain HTTP
-              calls, but ~1s slower due to sandbox warm-up.
+          - `mode`: `"structured"` (default httpx) or `"code"` (Node `fetch`
+            inside the sandbox).
 
-        Returns `{status, http_status, body, headers, error_kind?,
-        error_message?, duration_ms, operation_id, method, path}`. `status` is
-        one of `success`, `error`, or `timeout`. The remote API's response body
-        is returned verbatim under `body`; non-2xx responses set `error_kind`
-        to `http_<code>` but still include the body so you can diagnose.
+        Inputs (skill mode):
+          - `skill_key`: one of the skills returned by `search(skills=true)`.
+          - `code`: the script you want executed. Must write its output file
+            under `$HARNEX_OUTPUT_DIR`.
 
-        Both modes write a row to the audit log (`executions`) keyed on tenant,
-        connection, and api_key — every action is traceable.
+        Returns (API mode): `{status, http_status, body, headers, error_kind?,
+        error_message?, duration_ms, operation_id, method, path}`.
+
+        Returns (skill mode): `{status, skill_key, runtime, output_format,
+        download_url, filename, content_type, size_bytes, duration_ms,
+        error_kind?, error_message?, execution_id}`.
+
+        All paths write to the audit log (`executions`).
         """
         caller = _require_caller()
+        if skill_key is not None:
+            if not code:
+                return {
+                    "status": "error",
+                    "error_kind": "missing_code",
+                    "error_message": "skill execution requires `code`",
+                }
+            try:
+                async with session_scope() as session:
+                    skill_outcome = await execute_skill(
+                        session,
+                        tenant_id=caller.tenant_id,
+                        skill_key=skill_key,
+                        code=code,
+                        api_key_id=caller.api_key_id,
+                    )
+            except SkillNotFoundError:
+                return {
+                    "status": "error",
+                    "error_kind": "skill_not_found",
+                    "error_message": skill_key,
+                }
+            return _ensure_outcome_envelope(skill_outcome)
+        if connection_id is None or operation_id is None:
+            return {
+                "status": "error",
+                "error_kind": "missing_args",
+                "error_message": (
+                    "execute requires either (connection_id + operation_id) or "
+                    "(skill_key + code)"
+                ),
+            }
         try:
             conn_uuid = UUID(connection_id)
         except ValueError:

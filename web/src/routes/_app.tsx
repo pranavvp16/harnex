@@ -11,6 +11,7 @@ import {
   Bell,
   BookOpen,
   ChevronDown,
+  FolderOpen,
   Key,
   LayoutDashboard,
   LogOut,
@@ -55,6 +56,7 @@ const NAV = [
   { to: "/search", label: "Search", icon: Search },
   { to: "/api-keys", label: "API Keys", icon: Key },
   { to: "/executions", label: "Executions", icon: Zap },
+  { to: "/files", label: "Files", icon: FolderOpen },
   { to: "/usage", label: "Usage", icon: BarChart2 },
 ] as const;
 
@@ -64,6 +66,7 @@ const PAGE_TITLES = {
   "/search": "Search playground",
   "/api-keys": "API keys",
   "/executions": "Executions",
+  "/files": "Files",
   "/usage": "Usage",
   "/style-guide": "Style guide",
 } as const;

@@ -33,18 +33,33 @@ class SandboxRunner(Protocol):
         self, *, source: str, timeout_seconds: int | None = None
     ) -> SandboxResult: ...
 
+    async def run_python_script(
+        self,
+        *,
+        source: str,
+        working_dir: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> SandboxResult: ...
+
+    async def write_files(self, *, files: dict[str, bytes], working_dir: str) -> None: ...
+
+    async def read_file(self, *, path: str, max_bytes: int) -> bytes: ...
+
+    async def list_files(self, *, working_dir: str) -> list[str]: ...
+
 
 class BlaxelSandboxRunner:
     """Default runner — talks to the configured Blaxel sandbox via `blaxel.core`.
 
-    A single shared sandbox is used per environment; per-execution isolation
-    relies on Blaxel's process-level sandboxing, plus uniquely-named
-    working dirs for the node script path.
+    A single shared sandbox per name; per-execution isolation relies on
+    Blaxel's process-level sandboxing plus per-call working dirs. Pass an
+    explicit ``sandbox_name`` to target a non-default (e.g. Python) sandbox.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, sandbox_name: str | None = None) -> None:
         settings = get_settings()
-        self._sandbox_name = settings.blaxel_sandbox_name
+        self._sandbox_name = sandbox_name or settings.blaxel_sandbox_name
         self._timeout = settings.blaxel_default_timeout_seconds
         # Bridge our HARNEX_* names into the BL_* vars the SDK reads.
         if not os.environ.get("BL_API_KEY") and settings.blaxel_api_key.get_secret_value():
@@ -99,6 +114,104 @@ class BlaxelSandboxRunner:
         cmd = f'node -e "eval(Buffer.from(\\"{encoded}\\", \\"base64\\").toString(\\"utf-8\\"))"'
         return await self.run_command(command=cmd, timeout_seconds=timeout_seconds)
 
+    async def run_python_script(
+        self,
+        *,
+        source: str,
+        working_dir: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> SandboxResult:
+        """Run a python script in the sandbox.
+
+        Pipes the source through base64 + ``python3 -c`` so the script content
+        never touches the shell. Environment variables are exported via inline
+        ``key=value`` prefixes (values shell-quoted) — keep them ASCII-safe.
+        """
+        import base64
+        import shlex
+
+        encoded = base64.b64encode(source.encode("utf-8")).decode("ascii")
+        env_prefix = ""
+        if env:
+            env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items()) + " "
+        # `python3 -c "import base64,sys; exec(base64.b64decode(sys.argv[1]).decode())" "<b64>"`
+        # — passing the payload as an argv element avoids any shell quoting of the
+        # encoded blob itself.
+        cmd = (
+            f'{env_prefix}python3 -c "import base64,sys; '
+            f'exec(base64.b64decode(sys.argv[1]).decode())" "{encoded}"'
+        )
+        return await self.run_command(
+            command=cmd, working_dir=working_dir, timeout_seconds=timeout_seconds
+        )
+
+    async def write_files(self, *, files: dict[str, bytes], working_dir: str) -> None:
+        """Stage helper files into ``working_dir`` on the sandbox.
+
+        Each file is base64-encoded into its target path. Callers are
+        responsible for ensuring filenames are safe (we're shipping vendored
+        skill scripts, not user input, so this is fine for v1).
+        """
+        import base64
+        import shlex
+
+        await self.run_command(command=f"mkdir -p {shlex.quote(working_dir)}")
+        for rel, content in files.items():
+            encoded = base64.b64encode(content).decode("ascii")
+            target = f"{working_dir.rstrip('/')}/{rel}"
+            parent = target.rsplit("/", 1)[0]
+            cmd = (
+                f"mkdir -p {shlex.quote(parent)} && "
+                f"printf %s {shlex.quote(encoded)} | base64 -d > {shlex.quote(target)}"
+            )
+            result = await self.run_command(command=cmd)
+            if result.exit_code != 0:
+                raise RuntimeError(
+                    f"failed to stage {target!r} in sandbox: {result.stderr or result.stdout}"
+                )
+
+    async def read_file(self, *, path: str, max_bytes: int) -> bytes:
+        """Read up to ``max_bytes`` bytes from a sandbox file as base64.
+
+        Aborts with ``RuntimeError`` when the file exceeds ``max_bytes`` —
+        callers should size this for the skill's declared max output.
+        """
+        import base64
+        import shlex
+
+        size_result = await self.run_command(
+            command=f"stat -c %s {shlex.quote(path)} 2>/dev/null || wc -c < {shlex.quote(path)}"
+        )
+        try:
+            size = int((size_result.stdout or "0").strip())
+        except ValueError as exc:
+            raise RuntimeError(
+                f"could not determine size of {path}: {size_result.stderr or size_result.stdout}"
+            ) from exc
+        if size > max_bytes:
+            raise RuntimeError(
+                f"artifact {path} is {size} bytes (max {max_bytes})"
+            )
+        result = await self.run_command(command=f"base64 -w 0 {shlex.quote(path)}")
+        if result.exit_code != 0:
+            raise RuntimeError(f"failed to read {path}: {result.stderr or result.stdout}")
+        return base64.b64decode(result.stdout.strip())
+
+    async def list_files(self, *, working_dir: str) -> list[str]:
+        """List regular files (basenames) directly under ``working_dir``."""
+        import shlex
+
+        result = await self.run_command(
+            command=(
+                f"find {shlex.quote(working_dir)} -maxdepth 1 -type f -printf '%f\\n' "
+                "2>/dev/null || true"
+            )
+        )
+        if result.exit_code != 0:
+            return []
+        return [line for line in (result.stdout or "").splitlines() if line.strip()]
+
 
 def generate_fetch_script(
     *,
@@ -141,6 +254,7 @@ def generate_fetch_script(
 
 
 _runner: SandboxRunner | None = None
+_python_runner: SandboxRunner | None = None
 
 
 def get_sandbox_runner() -> SandboxRunner:
@@ -156,11 +270,31 @@ def set_sandbox_runner(runner: SandboxRunner) -> None:
     _runner = runner
 
 
+def get_python_sandbox_runner() -> SandboxRunner:
+    """Runner for the Python-runtime skill sandbox.
+
+    Lazily instantiated; tests can substitute via :func:`set_python_sandbox_runner`.
+    """
+    global _python_runner
+    if _python_runner is None:
+        _python_runner = BlaxelSandboxRunner(
+            sandbox_name=get_settings().blaxel_python_sandbox_name
+        )
+    return _python_runner
+
+
+def set_python_sandbox_runner(runner: SandboxRunner) -> None:
+    global _python_runner
+    _python_runner = runner
+
+
 __all__ = [
     "BlaxelSandboxRunner",
     "SandboxResult",
     "SandboxRunner",
     "generate_fetch_script",
+    "get_python_sandbox_runner",
     "get_sandbox_runner",
+    "set_python_sandbox_runner",
     "set_sandbox_runner",
 ]
