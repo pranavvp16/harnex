@@ -21,6 +21,59 @@ not try to `Read` them at runtime.
 
 ---
 
+# Harnex: Node.js execution only
+
+This built-in’s `execute` call runs **JavaScript** in an isolated **Node**
+sandbox. The `docx` package is available via `require("docx")`. **Python,
+pandoc, LibreOffice, Poppler, and other CLI tools mentioned later in this guide
+are not installed** — those sections are retained from upstream as conceptual
+reference on how `.docx` works, not as runnable steps inside Harnex.
+
+**Creating a new `.docx`.** Use **docx-js** only. MCP `search(skills=true)`
+returns this `SKILL.md` body as `instructions` only — there is no separate
+`Read` step for `docx-js.md`. Use the **Minimal docx-js template (Harnex)**
+below and extend it with the public `docx` npm API (`Paragraph`, `Table`,
+`ImageRun`, …).
+
+**Editing or redlining an existing `.docx`.** You cannot run the Python
+Document library, `python ooxml/scripts/...`, or `pandoc` here. Rebuild the
+requested output as a **new** document with docx-js when you can infer structure
+from context; otherwise explain that in-place OOXML / tracked-changes editing
+is not available in this sandbox.
+
+## Minimal docx-js template (Harnex)
+
+```js
+const { Document, Packer, Paragraph, HeadingLevel, TextRun } = require("docx");
+const fs = require("fs");
+const path = require("path");
+
+const doc = new Document({
+  sections: [
+    {
+      properties: {},
+      children: [
+        new Paragraph({
+          text: "Title",
+          heading: HeadingLevel.HEADING_1,
+        }),
+        new Paragraph({
+          children: [new TextRun("Body text.")],
+        }),
+      ],
+    },
+  ],
+});
+
+(async () => {
+  const buffer = await Packer.toBuffer(doc);
+  const outDir = process.env.HARNEX_OUTPUT_DIR;
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, "output.docx"), buffer);
+})();
+```
+
+---
 
 # DOCX creation, editing, and analysis
 
@@ -48,6 +101,9 @@ Use "Creating a new Word document" workflow
 
 ## Reading and analyzing content
 
+**Harnex:** `pandoc`, Python unpack scripts, and LibreOffice are **not** in the
+sandbox. This section describes typical desktop workflows only.
+
 ### Text extraction
 If you just need to read the text contents of a document, you should convert the document to markdown using pandoc. Pandoc provides excellent support for preserving document structure and can show tracked changes:
 
@@ -74,23 +130,33 @@ You need raw XML access for: comments, complex formatting, document structure, e
 When creating a new Word document from scratch, use **docx-js**, which allows you to create Word documents using JavaScript/TypeScript.
 
 ### Workflow
-1. **MANDATORY - READ ENTIRE FILE**: Read [`docx-js.md`](docx-js.md) (~500 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for detailed syntax, critical formatting rules, and best practices before proceeding with document creation.
-2. Create a JavaScript/TypeScript file using Document, Paragraph, TextRun components (You can assume all dependencies are installed, but if not, refer to the dependencies section below)
-3. Export as .docx using Packer.toBuffer()
+1. Start from **Minimal docx-js template (Harnex)** above; extend it with
+   `Paragraph`, `HeadingLevel`, `TextRun`, `Table`, `ImageRun`, and other
+   `docx` exports as needed (the `docx` package is preinstalled).
+2. Export with `Packer.toBuffer()` and write the buffer under
+   `${HARNEX_OUTPUT_DIR}/<name>.docx`.
 
 ## Editing an existing Word document
 
-When editing an existing Word document, use the **Document library** (a Python library for OOXML manipulation). The library automatically handles infrastructure setup and provides methods for document manipulation. For complex scenarios, you can access the underlying DOM directly through the library.
+**Harnex:** This skill runs **Node.js** only. The upstream **Document library**
+(Python) workflow in this section **cannot be executed** in Harnex — do not
+submit Python or shell commands to `execute`. Recreate content with docx-js or
+set user expectations.
 
-### Workflow
-1. **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Read the full file content for the Document library API and XML patterns for directly editing document files.
-2. Unpack the document: `python ooxml/scripts/unpack.py <office_file> <output_directory>`
-3. Create and run a Python script using the Document library (see "Document Library" section in ooxml.md)
-4. Pack the final document: `python ooxml/scripts/pack.py <input_directory> <office_file>`
+When editing outside Harnex, the upstream guide uses the **Document library**
+(Python OOXML). That path is documented below for reference only.
 
-The Document library provides both high-level methods for common operations and direct DOM access for complex scenarios.
+### Workflow (upstream — not runnable in Harnex)
+1. Read [`ooxml.md`](ooxml.md) for API patterns (file is **not** on the sandbox
+   filesystem; embed guidance from your `search` instructions context only).
+2. Unpack: `python ooxml/scripts/unpack.py <office_file> <output_directory>`
+3. Python script using the Document library (see "Document Library" in ooxml.md)
+4. Pack: `python ooxml/scripts/pack.py <input_directory> <office_file>`
 
 ## Redlining workflow for document review
+
+**Harnex:** Requires `pandoc` and Python OOXML tools — **not available** here.
+Use this section as background on tracked-change concepts only.
 
 This workflow allows you to plan comprehensive tracked changes using markdown before implementing them in OOXML. **CRITICAL**: For complete tracked changes, you must implement ALL changes systematically.
 
@@ -131,7 +197,7 @@ Example - Changing "30 days" to "60 days" in a sentence:
    - Sequential: "Batch 1: Pages 1-3", "Batch 2: Pages 4-6"
 
 3. **Read documentation and unpack**:
-   - **MANDATORY - READ ENTIRE FILE**: Read [`ooxml.md`](ooxml.md) (~600 lines) completely from start to finish. **NEVER set any range limits when reading this file.** Pay special attention to the "Document Library" and "Tracked Change Patterns" sections.
+   - Review OOXML / Document library patterns from your context (no on-disk `ooxml.md` in Harnex).
    - **Unpack the document**: `python ooxml/scripts/unpack.py <file.docx> <dir>`
    - **Note the suggested RSID**: The unpack script will suggest an RSID to use for your tracked changes. Copy this RSID for use in step 4b.
 
@@ -173,6 +239,8 @@ Example - Changing "30 days" to "60 days" in a sentence:
 
 ## Converting Documents to Images
 
+**Harnex:** `soffice` and `pdftoppm` are **not** in the sandbox — reference only.
+
 To visually analyze Word documents, convert them to images using a two-step process:
 
 1. **Convert DOCX to PDF**:
@@ -205,6 +273,10 @@ pdftoppm -jpeg -r 150 -f 2 -l 5 document.pdf page  # Converts only pages 2-5
 - Avoid unnecessary print statements
 
 ## Dependencies
+
+**Harnex (docx built-in):** only `docx` (npm) is guaranteed on the execute path.
+
+Upstream / local workstation dependencies (not provisioned in Harnex):
 
 Required dependencies (install if not available):
 

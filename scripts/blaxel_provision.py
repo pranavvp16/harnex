@@ -34,8 +34,9 @@ def _load_dotenv() -> None:
 
 
 # Python skill dependencies — installed once per sandbox lifetime; pip is no-op
-# when these are already present at compatible versions.
-PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx"]
+# when these are already present at compatible versions. Includes pypdf + pillow
+# for vendored composio PDF helpers (forms / annotations).
+PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx", "pypdf", "pillow"]
 # docx-js skill dep on the Node sandbox.
 NODE_SKILL_PACKAGES = ["docx"]
 

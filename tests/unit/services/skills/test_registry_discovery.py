@@ -90,3 +90,4 @@ def test_license_and_manifest_excluded_from_scripts() -> None:
         assert "skill.yaml" not in skill.scripts, skill.key
         assert "LICENSE.txt" not in skill.scripts, skill.key
         assert "SKILL.md" not in skill.scripts, skill.key
+        assert "NOTICE.md" not in skill.scripts, skill.key

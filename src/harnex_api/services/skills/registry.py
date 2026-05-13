@@ -26,7 +26,9 @@ _BUILTINS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtins"
 # Files that live in a skill folder but aren't part of the authoring payload —
 # the manifest is parsed separately, LICENSE/NOTICE belong to attribution, and
 # SKILL.md is loaded into ``instructions`` directly.
-_EXCLUDED_NAMES = frozenset({"SKILL.md", "skill.yaml", "LICENSE", "LICENSE.txt", "NOTICE"})
+_EXCLUDED_NAMES = frozenset(
+    {"SKILL.md", "skill.yaml", "LICENSE", "LICENSE.txt", "NOTICE", "NOTICE.md"}
+)
 _log = get_logger(__name__)
 
 
