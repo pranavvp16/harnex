@@ -1,0 +1,14 @@
+key: docx
+name: Word Document Builder
+runtime: node
+output_format: docx
+overview: >-
+  Build .docx Word documents from structured content (paragraphs, headings,
+  tables, lists, images). Produces a downloadable Office Open XML file using
+  the docx-js library. Use when the user asks for a Word document, report,
+  letter, memo, or .docx file.
+metadata:
+  mime_type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+  libraries:
+    - docx
+  max_output_bytes: 26214400

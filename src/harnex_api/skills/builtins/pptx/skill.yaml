@@ -1,0 +1,14 @@
+key: pptx
+name: PowerPoint Presentation Builder
+runtime: python
+output_format: pptx
+overview: >-
+  Build PowerPoint presentations (.pptx) with slides, title layouts, bullet
+  lists, tables, and images using python-pptx. Produces a downloadable slide
+  deck. Use when the user asks for a presentation, slide deck, .pptx,
+  PowerPoint file, or wants to "make slides".
+metadata:
+  mime_type: application/vnd.openxmlformats-officedocument.presentationml.presentation
+  libraries:
+    - python-pptx
+  max_output_bytes: 26214400

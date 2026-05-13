@@ -28,6 +28,7 @@ dependencies = [
     "structlog>=24.4",
     "orjson>=3.10",
     "redis[hiredis]>=5.2",
+    "azure-storage-blob>=12.24",
 ]
 
 [project.optional-dependencies]

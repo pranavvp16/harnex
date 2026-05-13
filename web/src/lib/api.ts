@@ -220,6 +220,23 @@ export interface ExecuteRequestInput {
   body?: unknown;
 }
 
+export interface FileItem {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  skill_key: string;
+  download_url: string;
+  download_url_expires_at: string;
+  created_at: string;
+}
+
+export interface ListFilesInput {
+  limit?: number;
+  offset?: number;
+  skillKey?: string | null;
+}
+
 export interface ExecuteResponse {
   status: ExecutionStatus;
   http_status: number | null;
@@ -262,6 +279,8 @@ export interface HarnexClient {
     connector_filter?: string | null;
   }): Promise<SearchResponse>;
   executeOperation(input: ExecuteRequestInput): Promise<ExecuteResponse>;
+  listFiles(input?: ListFilesInput): Promise<Page<FileItem>>;
+  deleteFile(id: string): Promise<void>;
   getMe(): Promise<MeResponse>;
   createTenant(input: CreateTenantInput): Promise<Tenant>;
   checkTenantSlug(slug: string): Promise<SlugCheckResult>;
@@ -340,6 +359,12 @@ export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
       }),
     executeOperation: (input) =>
       call<ExecuteResponse>("/v1/execute", { method: "POST", json: input }),
+    listFiles: ({ limit = 50, offset = 0, skillKey = null } = {}) => {
+      const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+      if (skillKey) params.set("skill_key", skillKey);
+      return call<Page<FileItem>>(`/v1/files?${params.toString()}`);
+    },
+    deleteFile: (id) => call<void>(`/v1/files/${id}`, { method: "DELETE" }),
     getMe: () => call<MeResponse>("/v1/me"),
     createTenant: (input) =>
       call<Tenant>("/v1/tenants", { method: "POST", json: input }),
