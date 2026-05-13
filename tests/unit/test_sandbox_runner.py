@@ -28,6 +28,36 @@ class FakeRunner:
         self.calls.append({"kind": "node", "source": source, "timeout": timeout_seconds})
         return SandboxResult(exit_code=0, stdout="42", stderr="")
 
+    async def run_python_script(
+        self,
+        *,
+        source: str,
+        working_dir: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout_seconds: int | None = None,
+    ) -> SandboxResult:
+        self.calls.append(
+            {
+                "kind": "python",
+                "source": source,
+                "wd": working_dir,
+                "env": dict(env or {}),
+                "timeout": timeout_seconds,
+            }
+        )
+        return SandboxResult(exit_code=0, stdout="", stderr="")
+
+    async def write_files(self, *, files: dict[str, bytes], working_dir: str) -> None:
+        self.calls.append({"kind": "write_files", "wd": working_dir, "count": len(files)})
+
+    async def read_file(self, *, path: str, max_bytes: int) -> bytes:
+        self.calls.append({"kind": "read_file", "path": path, "max_bytes": max_bytes})
+        return b""
+
+    async def list_files(self, *, working_dir: str) -> list[str]:
+        self.calls.append({"kind": "list_files", "wd": working_dir})
+        return []
+
 
 def test_fake_runner_satisfies_protocol() -> None:
     runner = FakeRunner()

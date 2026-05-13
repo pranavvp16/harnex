@@ -43,6 +43,23 @@ class SearchHit:
     document: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SkillHit:
+    """A retrieval hit against the global skills catalog.
+
+    Unlike :class:`SearchHit` this is not tenant-scoped — skills are global
+    built-ins. The full ``instructions`` (the skill's ``SKILL.md``) is shipped
+    inline so the agent can write code against it without a follow-up call.
+    """
+
+    skill_key: str
+    name: str
+    runtime: str
+    output_format: str
+    instructions: str
+    score: float
+
+
 class VectorSearch(Protocol):
     async def search(
         self,
@@ -53,6 +70,16 @@ class VectorSearch(Protocol):
         top_k: int = 10,
         connector_filter: str | None = None,
     ) -> list[SearchHit]: ...
+
+
+class SkillVectorSearch(Protocol):
+    async def search(
+        self,
+        *,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 1,
+    ) -> list[SkillHit]: ...
 
 
 class PgVectorSearch:
@@ -271,7 +298,154 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
+class PgVectorSkillSearch:
+    """Hybrid skill search over the global ``skills`` table — no tenant scoping.
+
+    The skills catalog is small (a handful of rows for built-ins) so we don't
+    bother with materialized CTEs; the query is plenty fast.
+    """
+
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._session_factory = session_factory
+
+    async def search(
+        self,
+        *,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 1,
+    ) -> list[SkillHit]:
+        async with self._session_factory() as session:
+            return await self._search(
+                session, embedding=embedding, query_text=query_text, top_k=top_k
+            )
+
+    async def _search(
+        self,
+        session: AsyncSession,
+        *,
+        embedding: list[float],
+        query_text: str,
+        top_k: int,
+    ) -> list[SkillHit]:
+        sql = text(
+            """
+            WITH semantic AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (ORDER BY embedding <=> CAST(:emb AS vector))
+                           AS rank
+                FROM skills
+                ORDER BY embedding <=> CAST(:emb AS vector)
+                LIMIT :limit
+            ),
+            keyword AS (
+                SELECT s.id,
+                       ROW_NUMBER() OVER (ORDER BY ts_rank_cd(s.search_tsv, q) DESC)
+                           AS rank
+                FROM skills s,
+                     websearch_to_tsquery('english', :q) AS q
+                WHERE s.search_tsv @@ q
+                ORDER BY ts_rank_cd(s.search_tsv, q) DESC
+                LIMIT :limit
+            ),
+            fused AS (
+                SELECT id, SUM(score) AS score
+                FROM (
+                    SELECT id, 1.0 / (:rrf_k + rank) AS score FROM semantic
+                    UNION ALL
+                    SELECT id, 1.0 / (:rrf_k + rank) AS score FROM keyword
+                ) t
+                GROUP BY id
+            )
+            SELECT s.key, s.name, s.runtime, s.output_format, s.instructions, f.score
+            FROM fused f
+            JOIN skills s ON s.id = f.id
+            ORDER BY f.score DESC
+            LIMIT :top_k
+            """
+        )
+        emb_literal = "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+        result = await session.execute(
+            sql,
+            {
+                "emb": emb_literal,
+                "q": query_text or "",
+                "limit": _PER_CHANNEL_LIMIT,
+                "top_k": top_k,
+                "rrf_k": _RRF_K,
+            },
+        )
+        return [
+            SkillHit(
+                skill_key=row["key"],
+                name=row["name"],
+                runtime=str(row["runtime"]),
+                output_format=row["output_format"],
+                instructions=row["instructions"] or "",
+                score=float(row["score"]),
+            )
+            for row in result.mappings().all()
+        ]
+
+
+class FakeSkillVectorSearch:
+    """In-process skill search for unit tests."""
+
+    def __init__(self) -> None:
+        self._lock = RLock()
+        self._records: list[dict[str, Any]] = []
+
+    def register(
+        self,
+        *,
+        skill_key: str,
+        name: str,
+        runtime: str,
+        output_format: str,
+        instructions: str,
+        embedding: list[float],
+    ) -> None:
+        with self._lock:
+            self._records.append(
+                {
+                    "skill_key": skill_key,
+                    "name": name,
+                    "runtime": runtime,
+                    "output_format": output_format,
+                    "instructions": instructions,
+                    "embedding": list(embedding),
+                }
+            )
+
+    def reset(self) -> None:
+        with self._lock:
+            self._records.clear()
+
+    async def search(
+        self,
+        *,
+        embedding: list[float],
+        query_text: str,
+        top_k: int = 1,
+    ) -> list[SkillHit]:
+        with self._lock:
+            scored = [(_cosine(embedding, rec["embedding"]), rec) for rec in self._records]
+            scored.sort(key=lambda p: p[0], reverse=True)
+            return [
+                SkillHit(
+                    skill_key=rec["skill_key"],
+                    name=rec["name"],
+                    runtime=rec["runtime"],
+                    output_format=rec["output_format"],
+                    instructions=rec["instructions"],
+                    score=score,
+                )
+                for score, rec in scored[:top_k]
+            ]
+
+
 _fake_singleton = FakeVectorSearch()
+_fake_skill_singleton = FakeSkillVectorSearch()
 
 
 def get_vector_search() -> VectorSearch:
@@ -281,16 +455,34 @@ def get_vector_search() -> VectorSearch:
     return PgVectorSearch(get_sessionmaker())
 
 
+def get_skill_vector_search() -> SkillVectorSearch:
+    settings = get_settings()
+    if settings.use_fake_vector_search:
+        return _fake_skill_singleton
+    return PgVectorSkillSearch(get_sessionmaker())
+
+
 def get_fake_vector_search() -> FakeVectorSearch:
     """Test helper — returns the process-wide fake instance."""
     return _fake_singleton
 
 
+def get_fake_skill_vector_search() -> FakeSkillVectorSearch:
+    """Test helper — returns the process-wide fake skills instance."""
+    return _fake_skill_singleton
+
+
 __all__ = [
+    "FakeSkillVectorSearch",
     "FakeVectorSearch",
     "PgVectorSearch",
+    "PgVectorSkillSearch",
     "SearchHit",
+    "SkillHit",
+    "SkillVectorSearch",
     "VectorSearch",
+    "get_fake_skill_vector_search",
     "get_fake_vector_search",
+    "get_skill_vector_search",
     "get_vector_search",
 ]
