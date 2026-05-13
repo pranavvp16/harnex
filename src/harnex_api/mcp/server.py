@@ -243,7 +243,8 @@ def create_mcp_app() -> FastMCP:
         "export users as xlsx", "make a slide deck", "draft a Word memo".
         `skills=true` is an exclusive mode: the response returns only the
         top-matching skill under `skills[]` (with full instructions inline) and
-        an empty `hits[]`. Use those instructions to write code, then call
+        an empty `hits[]`; `connector_filter` and `top_k` are ignored. Use
+        those instructions to write code, then call
         `execute` with `skill_key="<key>"` and `code="<your code>"`. The
         generated file is uploaded to tenant-isolated storage and `execute`
         returns a short-lived download URL.
