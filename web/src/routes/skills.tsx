@@ -110,8 +110,11 @@ const SKILLS: readonly Skill[] = [SKILL_PDF, SKILL_DOCX, SKILL_XLSX, SKILL_PPTX]
 /** Public repo docs — README (stack, MCP smoke, local dev). */
 const HARNEX_REPO_README =
   "https://github.com/pranavvp16/harnex/blob/main/README.md";
-/** Developer / MCP surface spec shipped in-repo. */
-const HARNEX_DEV_SPEC = "https://github.com/pranavvp16/harnex/blob/main/CLAUDE.md";
+/** User-facing MCP endpoint walkthrough (curl smoke tests). */
+const HARNEX_MCP_GUIDE =
+  "https://github.com/pranavvp16/harnex/blob/main/README.md#verify-the-mcp-endpoint";
+/** Production API liveness — JSON health payload (public). */
+const HARNEX_API_HEALTH = "https://api.harnex.dev/healthz";
 
 const FLOW_STEPS = [
   {
@@ -230,7 +233,7 @@ function SkillsMarketingPage() {
         <SkillsHero isAuthed={isAuthed} />
         <SkillsFlow />
         <SkillsCatalog isAuthed={isAuthed} />
-        <SkillsFiles />
+        <SkillsFiles isAuthed={isAuthed} />
         <SkillsCallout isAuthed={isAuthed} />
 
         <footer style={{ borderTop: "1px solid var(--border)", marginTop: "auto" }}>
@@ -253,7 +256,7 @@ function SkillsMarketingPage() {
                 [
                   ["Docs", HARNEX_REPO_README],
                   ["Changelog", "https://github.com/pranavvp16/harnex/releases"],
-                  ["Status", HARNEX_REPO_README],
+                  ["Status", HARNEX_API_HEALTH],
                   ["Privacy", "#"],
                   ["Terms", "#"],
                 ] as const
@@ -376,9 +379,7 @@ function SkillsHeader({
             </Link>
           ))}
           <a
-            href={HARNEX_REPO_README}
-            target="_blank"
-            rel="noopener noreferrer"
+            href="#docs"
             style={{
               fontSize: 13.5,
               fontWeight: 500,
@@ -484,11 +485,11 @@ function SkillsHero({ isAuthed }: { isAuthed: boolean }) {
         {cta}
         <a
           className="btn btn-ghost btn-lg"
-          href={HARNEX_DEV_SPEC}
+          href={HARNEX_MCP_GUIDE}
           target="_blank"
           rel="noopener noreferrer"
         >
-          <BookOpen size={14} /> Read the spec
+          <BookOpen size={14} /> MCP setup guide
         </a>
         <span style={{ fontSize: 13, color: "var(--muted)" }}>
           <InlineMono size={11.5}>npm i @harnex/mcp@0.4</InlineMono>
@@ -690,7 +691,14 @@ function SkillsHeroPanel() {
 
 function SkillsFlow() {
   return (
-    <section style={{ borderTop: "1px solid var(--border)", background: "var(--bg-alt)" }}>
+    <section
+      id="docs"
+      style={{
+        borderTop: "1px solid var(--border)",
+        background: "var(--bg-alt)",
+        scrollMarginTop: 72,
+      }}
+    >
       <div style={SECTION_PAD}>
         <div style={{ marginBottom: 48 }}>
           <span className="kicker">How it works</span>
@@ -932,7 +940,7 @@ function SkillsCatalog({ isAuthed }: { isAuthed: boolean }) {
 
 // ── Files preview ─────────────────────────────────────────────────────────────
 
-function SkillsFiles() {
+function SkillsFiles({ isAuthed }: { isAuthed: boolean }) {
   return (
     <section style={{ borderTop: "1px solid var(--border)", background: "var(--bg-alt)" }}>
       <div
@@ -999,8 +1007,19 @@ function SkillsFiles() {
               </li>
             ))}
           </ul>
-          <Link to="/files" className="btn btn-primary">
-            Open Files in console <ArrowRight size={14} />
+          <Link
+            to={isAuthed ? "/files" : "/onboarding"}
+            className="btn btn-primary"
+          >
+            {isAuthed ? (
+              <>
+                Open Files in console <ArrowRight size={14} />
+              </>
+            ) : (
+              <>
+                Get started to use Files <ArrowRight size={14} />
+              </>
+            )}
           </Link>
         </div>
 
