@@ -10,6 +10,8 @@ sandboxes we ``apt-get install`` ``poppler-utils`` (for ``pdf2image`` / ``pdftop
 and ``libreoffice-calc`` (headless ``soffice`` for ``recalc.py``), then ``pip install``.
 Skip system packages with ``BLAXEL_SKIP_PYTHON_SYSTEM_PACKAGES=1``.
 
+Exit codes: ``0`` ok; ``1`` post-apt verify failed; ``2`` missing BL creds; ``3`` apt failed; ``4`` pip failed.
+
 Usage:
     uv run python scripts/blaxel_provision.py
 """
@@ -137,7 +139,7 @@ async def _smoke_python(sandbox: Any) -> None:
     )
 
 
-async def _install_python_packages(sandbox: Any) -> None:
+async def _install_python_packages(sandbox: Any) -> int:
     pkgs = " ".join(PY_SKILL_PACKAGES)
     # `--break-system-packages` is needed on Debian/Ubuntu-based images that
     # mark the system Python as PEP 668-managed. Harmless on others.
@@ -152,6 +154,7 @@ async def _install_python_packages(sandbox: Any) -> None:
         "pip install:",
         getattr(proc, "stderr", "") or getattr(proc, "logs", None) or "ok",
     )
+    return _proc_exit_code(proc)
 
 
 def _skip_python_system_packages() -> bool:
@@ -268,7 +271,10 @@ async def main() -> int:
     sys_pkgs = await _install_python_system_packages(py_sandbox)
     if sys_pkgs is None:
         return 3
-    await _install_python_packages(py_sandbox)
+    pip_rc = await _install_python_packages(py_sandbox)
+    if pip_rc != 0:
+        print(f"blaxel_provision: pip install failed (exit {pip_rc})", file=sys.stderr)
+        return 4
     if sys_pkgs is True and await _verify_python_skill_toolchain(py_sandbox) != 0:
         print(
             "blaxel_provision: post-apt toolchain verify failed "
