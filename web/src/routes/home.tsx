@@ -1381,6 +1381,7 @@ function MarketingPage() {
               apiUrl="https://api.harnex.dev/mcp"
               apiKey="hnx_YOUR_KEY"
               compact
+              hideTitle
             />
           </div>
         </div>
