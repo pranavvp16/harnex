@@ -23,8 +23,9 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken, MultiFernet
-from sqlalchemy import select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import func
 
 from harnex_api.config import AppSettings
 from harnex_api.db.models import WebSession
@@ -359,6 +360,9 @@ class WebSessionService:
             now + timedelta(seconds=self._settings.session_idle_ttl_seconds),
             row.absolute_expires_at,
         )
+        # `func.now()` for updated_at because raw `execute(update(...))` skips
+        # the SQLAlchemy ORM unit-of-work and so TimestampMixin's `onupdate`
+        # hook doesn't fire on its own.
         await self._db.execute(
             update(WebSession)
             .where(WebSession.id == row.id)
@@ -367,6 +371,7 @@ class WebSessionService:
                 last_seen_ip=ip,
                 last_seen_ua=(ua or "")[:256] or None,
                 idle_expires_at=new_idle,
+                updated_at=func.now(),
             )
         )
         row.last_seen_at = now
@@ -428,7 +433,7 @@ class WebSessionService:
         await self._db.execute(
             update(WebSession)
             .where(WebSession.id == row.id)
-            .values(revoked_at=now, revoked_reason=reason)
+            .values(revoked_at=now, revoked_reason=reason, updated_at=func.now())
         )
         row.revoked_at = now
         row.revoked_reason = reason
@@ -445,6 +450,32 @@ class WebSessionService:
             await self.kc_logout(refresh_plain)
 
     async def revoke_all_for_user(self, sub: str, *, reason: str = "logout_all") -> int:
+        """Revoke every live session for `sub` AND tell Keycloak.
+
+        DB-only revocation isn't enough — an exfiltrated refresh token would
+        still be exchangeable at Keycloak's /token endpoint. So we decrypt
+        each session's RT and POST it to /protocol/openid-connect/logout
+        before marking the row revoked. Best-effort per session — a single
+        Keycloak hiccup must not block the rest from being killed.
+        """
+        rows_result = await self._db.execute(
+            select(WebSession).where(
+                WebSession.keycloak_user_id == sub,
+                WebSession.revoked_at.is_(None),
+            )
+        )
+        rows = list(rows_result.scalars().all())
+        for row in rows:
+            try:
+                refresh_plain = self.decrypt(row.refresh_token_ct)
+            except InvalidToken:
+                refresh_plain = None
+            if refresh_plain:
+                with contextlib.suppress(Exception):
+                    await self.kc_logout(refresh_plain)
+
+        if not rows:
+            return 0
         now = _now()
         result = await self._db.execute(
             update(WebSession)
@@ -452,11 +483,29 @@ class WebSessionService:
                 WebSession.keycloak_user_id == sub,
                 WebSession.revoked_at.is_(None),
             )
-            .values(revoked_at=now, revoked_reason=reason)
+            .values(revoked_at=now, revoked_reason=reason, updated_at=func.now())
         )
         # CursorResult.rowcount exists on UPDATE; SQLAlchemy's Result base type
-        # doesn't expose it. The mypy ignore is local to this branch and lifts
-        # if we ever wrap revoke-all in a count(*) query instead.
+        # doesn't expose it. The fallback handles the dialect-shaped Result.
+        return int(getattr(result, "rowcount", 0) or len(rows))
+
+    async def delete_expired(self, *, grace_seconds: int = 7 * 86400) -> int:
+        """Purge sessions whose absolute TTL passed or whose revocation aged out.
+
+        The grace window keeps recently-revoked rows around long enough for
+        audit / forensics. Intended to be invoked by a cron job — see
+        `scripts/cleanup_web_sessions.py`.
+        """
+        now = _now()
+        cutoff = now - timedelta(seconds=grace_seconds)
+        result = await self._db.execute(
+            delete(WebSession).where(
+                or_(
+                    WebSession.absolute_expires_at < cutoff,
+                    WebSession.revoked_at < cutoff,
+                )
+            )
+        )
         return int(getattr(result, "rowcount", 0) or 0)
 
 

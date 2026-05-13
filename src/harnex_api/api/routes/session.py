@@ -105,12 +105,29 @@ def _set_session_cookies(
 
 
 def _clear_session_cookies(response: Response, settings: AppSettings) -> None:
-    for name in (settings.session_cookie_name, settings.csrf_cookie_name):
-        response.delete_cookie(
-            name,
-            domain=settings.session_cookie_domain or None,
-            path="/",
-        )
+    # Browsers (Chrome ≥ 70's "schemeful same-site", recent Firefox) require
+    # the deletion Set-Cookie's attributes to match the original — otherwise
+    # the cookie silently survives logout. Mirror the same attrs we set in
+    # _set_session_cookies, except `httponly` which differs per cookie.
+    samesite = _samesite(settings.session_cookie_samesite)
+    domain = settings.session_cookie_domain or None
+    secure = settings.session_cookie_secure
+    response.delete_cookie(
+        settings.session_cookie_name,
+        domain=domain,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite=samesite,
+    )
+    response.delete_cookie(
+        settings.csrf_cookie_name,
+        domain=domain,
+        path="/",
+        secure=secure,
+        httponly=False,
+        samesite=samesite,
+    )
 
 
 # ---------- PKCE / state ----------
