@@ -25,6 +25,7 @@ import type {
 import { HarnexLogo } from "@/components/HarnexLogo";
 import { ApiError } from "@/lib/api";
 import { AuthError, useAuth } from "@/lib/auth";
+import { env } from "@/lib/env";
 import { useApi } from "@/lib/useApi";
 
 import "@/styles/onboarding.css";
@@ -86,10 +87,7 @@ function OnboardingPage() {
       void navigate({ to: "/dashboard" });
       return;
     }
-    const fullName =
-      (auth.user?.profile?.name as string | undefined) ??
-      (auth.user?.profile?.preferred_username as string | undefined) ??
-      "";
+    const fullName = auth.user?.full_name ?? "";
     setProfile((prev) => (prev.fullName ? prev : { ...prev, fullName }));
     setStep(2);
   }, [auth.status, auth.devTenantId, auth.user, step, navigate]);
@@ -102,9 +100,10 @@ function OnboardingPage() {
       next();
       return;
     }
-    if (auth.manager) {
-      // Real Keycloak — broker straight to the chosen IDP via kc_idp_hint.
-      await auth.signIn({ idpHint: p, returnTo: "/onboarding" });
+    if (!env.devTenantId) {
+      // Real auth build — broker straight to the chosen IDP via kc_idp_hint.
+      // signIn triggers a top-level navigation; control won't return here.
+      auth.signIn({ idpHint: p, returnTo: "/onboarding" });
       return;
     }
     // Dev / no-Keycloak path — fast-forward into the form.

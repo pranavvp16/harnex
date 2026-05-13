@@ -10,13 +10,9 @@ export const Route = createFileRoute("/_app/settings")({
 
 function SettingsPage() {
   const auth = useAuth();
-  const profile = auth.user?.profile as
-    | { email?: string; name?: string; preferred_username?: string; sub?: string }
-    | undefined;
-
-  const email = profile?.email ?? "—";
-  const name = profile?.name ?? profile?.preferred_username ?? "—";
-  const sub = profile?.sub ?? auth.user?.profile?.sub ?? "—";
+  const email = auth.user?.email ?? "—";
+  const name = auth.user?.full_name ?? "—";
+  const sub = auth.user?.sub ?? "—";
   const tenantId = auth.devTenantId ?? "—";
 
   return (

@@ -1,3 +1,4 @@
+import { getCsrfToken } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 export class ApiError extends Error {
@@ -250,12 +251,12 @@ export interface ExecuteResponse {
   path: string | null;
 }
 
-type TokenGetter = () => Promise<string | null>;
-
 export interface ClientAuth {
-  /** Returns a JWT access token for production OIDC auth. */
-  getAccessToken: TokenGetter;
-  /** Local dev: send X-Harnex-Dev-Tenant header instead of a bearer JWT. */
+  /**
+   * Local dev: send X-Harnex-Dev-Tenant header for tenant scoping.
+   * In real-auth (cookie BFF) builds this is null — the backend resolves
+   * the tenant from the session cookie's membership lookup instead.
+   */
   devTenantId?: string | null;
 }
 
@@ -286,23 +287,24 @@ export interface HarnexClient {
   checkTenantSlug(slug: string): Promise<SlugCheckResult>;
 }
 
-export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
-  const cfg: ClientAuth = typeof auth === "function" ? { getAccessToken: auth } : auth;
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export function buildClient(auth: ClientAuth = {}): HarnexClient {
+  const cfg: ClientAuth = auth;
 
   async function call<T>(
     path: string,
     init: RequestInit & { json?: unknown } = {},
   ): Promise<T> {
     const headers = new Headers(init.headers);
-    const token = await cfg.getAccessToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-      // Real-auth path: tell the API which workspace to scope to. Backend
-      // verifies the caller actually has membership in this tenant.
-      if (cfg.devTenantId) headers.set("X-Harnex-Tenant", cfg.devTenantId);
-    } else if (cfg.devTenantId) {
-      // Dev-mode build with no Keycloak — header-only auth for local testing.
+    const method = (init.method ?? "GET").toUpperCase();
+    if (cfg.devTenantId) {
+      // Dev build (no real auth): scope tenant via header.
       headers.set("X-Harnex-Dev-Tenant", cfg.devTenantId);
+    }
+    if (UNSAFE_METHODS.has(method)) {
+      const csrf = getCsrfToken();
+      if (csrf) headers.set("X-CSRF-Token", csrf);
     }
     if (init.json !== undefined) {
       headers.set("content-type", "application/json");
@@ -310,6 +312,7 @@ export function buildClient(auth: ClientAuth | TokenGetter): HarnexClient {
     const resp = await fetch(`${env.apiUrl}${path}`, {
       ...init,
       headers,
+      credentials: "include",
       body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
     });
     if (!resp.ok) {

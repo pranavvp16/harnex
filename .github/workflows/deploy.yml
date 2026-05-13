@@ -60,13 +60,10 @@ jobs:
           push: true
           # The VITE_* values get baked into the SPA bundle at build time, so
           # changing the public hostname requires a redeploy. Same-origin in prod →
-          # API URL is just the public host.
+          # API URL is just the public host. (Keycloak URLs are no longer required —
+          # the BFF handles OIDC server-side.)
           build-args: |
             VITE_HARNEX_API_URL=https://${{ secrets.HARNEX_PUBLIC_HOST }}
-            VITE_KEYCLOAK_AUTHORITY=https://${{ secrets.HARNEX_PUBLIC_HOST }}/auth/realms/harnex
-            VITE_KEYCLOAK_CLIENT_ID=harnex-web
-            VITE_KEYCLOAK_REDIRECT_URI=https://${{ secrets.HARNEX_PUBLIC_HOST }}/
-            VITE_KEYCLOAK_POST_LOGOUT_REDIRECT_URI=https://${{ secrets.HARNEX_PUBLIC_HOST }}/
           tags: |
             ${{ secrets.ACR_LOGIN_SERVER }}/harnex-web:${{ steps.tag.outputs.value }}
             ${{ secrets.ACR_LOGIN_SERVER }}/harnex-web:latest

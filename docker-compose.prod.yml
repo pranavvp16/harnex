@@ -91,6 +91,22 @@ services:
       # Allowlisted by the MCP transport-security middleware so the streamable-HTTP
       # endpoint accepts the public hostname (without it: "Invalid Host header").
       HARNEX_PUBLIC_HOST: ${HARNEX_PUBLIC_HOST:?}
+      # --- BFF cookie sessions (web console only — MCP keys are unaffected) ---
+      # Confidential client secret for harnex-web. Set the client to
+      # "Client authentication: ON" in the realm, then copy Credentials.
+      KEYCLOAK_WEB_CLIENT_SECRET: ${KEYCLOAK_WEB_CLIENT_SECRET:?set KEYCLOAK_WEB_CLIENT_SECRET}
+      # Same-origin in prod (Caddy serves SPA + /v1 on HARNEX_PUBLIC_HOST), so
+      # the web and api base URLs match and cookies are host-only.
+      HARNEX_WEB_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}
+      HARNEX_API_BASE_URL: https://${HARNEX_PUBLIC_HOST:?}
+      HARNEX_SESSION_COOKIE_SECURE: "true"
+      HARNEX_SESSION_COOKIE_SAMESITE: lax
+      # CSV of Fernet keys (44-char url-safe base64). Required — cookie sessions
+      # error out without it. Generate with:
+      #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      HARNEX_SESSION_ENCRYPTION_KEYS: ${HARNEX_SESSION_ENCRYPTION_KEYS:?set HARNEX_SESSION_ENCRYPTION_KEYS}
+      # Rollout flag — leave true while the SPA migrates; flip to false after staging soak.
+      HARNEX_ALLOW_BEARER_AUTH: ${HARNEX_ALLOW_BEARER_AUTH:-true}
     command:
       - uvicorn
       - harnex_api.main:app

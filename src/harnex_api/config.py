@@ -115,6 +115,41 @@ class AppSettings(BaseSettings):
     # resets per process and does not coordinate across workers).
     redis_url: str = Field("", alias="HARNEX_REDIS_URL")
 
+    # Confidential-client secret for the BFF (server-side OIDC code exchange + password
+    # grant). Required in staging/prod; empty disables cookie auth at /v1/session/*.
+    keycloak_web_client_secret: SecretStr = Field(
+        SecretStr(""), alias="KEYCLOAK_WEB_CLIENT_SECRET"
+    )
+    # Public origins. `web_base_url` is where the SPA lives (used to validate / build
+    # post-login redirects); `api_base_url` is the externally-reachable API host.
+    web_base_url: str = Field("http://localhost:5173", alias="HARNEX_WEB_BASE_URL")
+    api_base_url: str = Field("http://localhost:8000", alias="HARNEX_API_BASE_URL")
+
+    session_cookie_name: str = Field("harnex_sid", alias="HARNEX_SESSION_COOKIE_NAME")
+    csrf_cookie_name: str = Field("harnex_csrf", alias="HARNEX_CSRF_COOKIE_NAME")
+    # Empty = host-only cookie. Set to ".harnex.com" for split-host (app./api.) prod.
+    session_cookie_domain: str = Field("", alias="HARNEX_SESSION_COOKIE_DOMAIN")
+    session_cookie_secure: bool = Field(True, alias="HARNEX_SESSION_COOKIE_SECURE")
+    session_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        "lax", alias="HARNEX_SESSION_COOKIE_SAMESITE"
+    )
+    # Idle TTL slides forward on each request; absolute TTL is the hard cap.
+    session_idle_ttl_seconds: int = Field(
+        60 * 60 * 24, alias="HARNEX_SESSION_IDLE_TTL_SECONDS"
+    )
+    session_absolute_ttl_seconds: int = Field(
+        60 * 60 * 24 * 30, alias="HARNEX_SESSION_ABSOLUTE_TTL_SECONDS"
+    )
+    # CSV of Fernet keys (44-char url-safe base64). First key encrypts new ciphertexts;
+    # remaining keys are tried during decrypt for in-flight rotation. Required in
+    # staging/prod (lifespan refuses to start without it).
+    session_encryption_keys: SecretStr = Field(
+        SecretStr(""), alias="HARNEX_SESSION_ENCRYPTION_KEYS"
+    )
+    # Rollout flag — accept legacy Bearer-JWT auth while the SPA migrates to cookies.
+    # Flip to False after the SPA cutover lands.
+    allow_bearer_auth: bool = Field(True, alias="HARNEX_ALLOW_BEARER_AUTH")
+
     @property
     def is_local(self) -> bool:
         return self.env == "local"

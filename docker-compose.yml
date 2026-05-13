@@ -194,10 +194,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_HARNEX_API_URL: ${VITE_HARNEX_API_URL:-http://localhost:8000}
-        VITE_KEYCLOAK_AUTHORITY: ${VITE_KEYCLOAK_AUTHORITY:-http://localhost:8080/realms/harnex}
-        VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-harnex-web}
-        VITE_KEYCLOAK_REDIRECT_URI: ${VITE_KEYCLOAK_REDIRECT_URI:-http://localhost:5173/}
-        VITE_KEYCLOAK_POST_LOGOUT_REDIRECT_URI: ${VITE_KEYCLOAK_POST_LOGOUT_REDIRECT_URI:-http://localhost:5173/}
         VITE_HARNEX_DEV_TENANT: ${VITE_HARNEX_DEV_TENANT:-}
     ports:
       - "5173:80"
