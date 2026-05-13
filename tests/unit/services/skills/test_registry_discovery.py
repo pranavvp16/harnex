@@ -54,3 +54,39 @@ def test_embedding_text_contains_format_and_overview() -> None:
         # The overview is the document-intent anchor; the first ~30 chars of it
         # should appear verbatim in the embedding text.
         assert skill.overview[:30] in text, skill.key
+
+
+def test_support_files_loaded_into_scripts_dict() -> None:
+    """Top-level helper files (forms.md, ooxml.md, recalc.py, html2pptx.md) and
+    ``scripts/`` subtrees vendored from composio are now picked up by the
+    registry walk — they were silently dropped when ``_load_one`` only read
+    ``scripts/``. Tests guard against regressing back to that behavior.
+    """
+    by_key = {s.key: s for s in discover_builtins()}
+
+    # composio's pdf skill ships forms.md + reference.md alongside SKILL.md.
+    assert "forms.md" in by_key["pdf"].scripts
+    assert "reference.md" in by_key["pdf"].scripts
+    assert "scripts/check_fillable_fields.py" in by_key["pdf"].scripts
+
+    # docx ships docx-js.md + ooxml.md at the top level plus a python helpers tree.
+    assert "docx-js.md" in by_key["docx"].scripts
+    assert "ooxml.md" in by_key["docx"].scripts
+    assert "scripts/document.py" in by_key["docx"].scripts
+
+    # xlsx ships a single recalc.py utility at the top level.
+    assert "recalc.py" in by_key["xlsx"].scripts
+
+    # pptx ships html2pptx.md + ooxml.md plus several scripts.
+    assert "html2pptx.md" in by_key["pptx"].scripts
+    assert "scripts/html2pptx.js" in by_key["pptx"].scripts
+
+
+def test_license_and_manifest_excluded_from_scripts() -> None:
+    """Manifest + LICENSE files must not leak into the script payload; they
+    aren't authoring guidance and would inflate the search response by KB.
+    """
+    for skill in discover_builtins():
+        assert "skill.yaml" not in skill.scripts, skill.key
+        assert "LICENSE.txt" not in skill.scripts, skill.key
+        assert "SKILL.md" not in skill.scripts, skill.key

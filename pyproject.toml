@@ -54,6 +54,10 @@ packages = ["src/harnex_api"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# Vendored authoring guides + helper scripts (composio MIT, surfaced verbatim
+# to LLM callers and shipped into the Blaxel sandbox at execute time). They're
+# not part of our codebase and aren't linted by us.
+extend-exclude = ["src/harnex_api/skills/builtins"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF"]
@@ -77,6 +81,11 @@ markers = [
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
+# Vendored skill assets under src/harnex_api/skills/builtins are loaded as TEXT
+# by the registry and shipped into the Blaxel sandbox for execution. They are
+# not imported by the API and are intentionally exempt from our strict mypy
+# config.
+exclude = "src/harnex_api/skills/builtins/.*"
 
 [[tool.mypy.overrides]]
 module = "pgvector.*"

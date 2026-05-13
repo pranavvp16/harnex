@@ -23,6 +23,10 @@ from harnex_api.logging import get_logger
 from harnex_api.services.search.embeddings import EmbeddingProvider, get_embedding_provider
 
 _BUILTINS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtins"
+# Files that live in a skill folder but aren't part of the authoring payload —
+# the manifest is parsed separately, LICENSE/NOTICE belong to attribution, and
+# SKILL.md is loaded into ``instructions`` directly.
+_EXCLUDED_NAMES = frozenset({"SKILL.md", "skill.yaml", "LICENSE", "LICENSE.txt", "NOTICE"})
 _log = get_logger(__name__)
 
 
@@ -55,13 +59,23 @@ def _load_one(folder: Path) -> _LoadedSkill:
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     instructions = skill_md_path.read_text(encoding="utf-8")
 
+    # Load every other file under the skill folder into `scripts` keyed by its
+    # relative path. This includes both the `scripts/` subdir (helper code) and
+    # top-level support docs (e.g. `forms.md`, `ooxml.md`) that SKILL.md may
+    # reference.
     scripts: dict[str, str] = {}
-    scripts_dir = folder / "scripts"
-    if scripts_dir.is_dir():
-        for child in sorted(scripts_dir.rglob("*")):
-            if child.is_file():
-                rel = str(child.relative_to(scripts_dir))
-                scripts[rel] = child.read_text(encoding="utf-8")
+    for child in sorted(folder.rglob("*")):
+        if not child.is_file():
+            continue
+        if child.name in _EXCLUDED_NAMES:
+            continue
+        rel = str(child.relative_to(folder))
+        try:
+            scripts[rel] = child.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # Skip binary blobs (e.g. images vendored alongside docs); they
+            # belong on a CDN, not in the search response.
+            continue
 
     key = str(manifest["key"])
     name = str(manifest["name"])
