@@ -92,6 +92,24 @@ def test_authorize_url_no_idp_hint(settings_with_key: AppSettings) -> None:
     assert "kc_idp_hint" not in url
 
 
+def _make_row(*, at_expires_in_seconds: int) -> WebSession:
+    now = datetime.now(UTC)
+    return WebSession(
+        sid_hash=b"\x00" * 32,
+        keycloak_user_id="user-x",
+        email=None,
+        access_token_ct=b"x",
+        refresh_token_ct=b"x",
+        id_token_ct=None,
+        claims_cache={},
+        csrf_token="csrf",
+        access_token_expires_at=now + timedelta(seconds=at_expires_in_seconds),
+        refresh_token_expires_at=now + timedelta(seconds=3600),
+        absolute_expires_at=now + timedelta(days=30),
+        idle_expires_at=now + timedelta(hours=24),
+    )
+
+
 async def test_revoke_commits_inline(settings_with_key: AppSettings) -> None:
     """Greptile P1 regression — `_revoke` must commit before returning.
 
@@ -104,21 +122,51 @@ async def test_revoke_commits_inline(settings_with_key: AppSettings) -> None:
     db.execute = AsyncMock()
     db.commit = AsyncMock()
     svc = WebSessionService(db=db, settings=settings_with_key, http=None)  # type: ignore[arg-type]
-    row = WebSession(
-        sid_hash=b"\x00" * 32,
-        keycloak_user_id="user-x",
-        email=None,
-        access_token_ct=b"x",
-        refresh_token_ct=b"x",
-        id_token_ct=None,
-        claims_cache={},
-        csrf_token="csrf",
-        access_token_expires_at=datetime.now(UTC) + timedelta(seconds=300),
-        refresh_token_expires_at=datetime.now(UTC) + timedelta(seconds=3600),
-        absolute_expires_at=datetime.now(UTC) + timedelta(days=30),
-        idle_expires_at=datetime.now(UTC) + timedelta(hours=24),
-    )
+    row = _make_row(at_expires_in_seconds=300)
     await svc._revoke(row, reason="refresh_reuse")
     db.commit.assert_awaited_once()
     assert row.revoked_at is not None
     assert row.revoked_reason == "refresh_reuse"
+
+
+async def test_silent_refresh_commits_rotated_tokens(
+    settings_with_key: AppSettings,
+) -> None:
+    """Greptile P1 regression — rotated tokens must persist across rollback.
+
+    Keycloak invalidates the old RT the moment it issues new ones (refresh
+    rotation). If `silently_refresh_if_needed` only `flush()`s and the route
+    body later raises, `get_db` rolls back the new ciphertexts and the next
+    request retries with the stale (now-invalid) RT → `invalid_grant` →
+    reuse-detection fires → user permanently logged out for an unrelated
+    server error.
+    """
+    row = _make_row(at_expires_in_seconds=10)  # near expiry → triggers refresh
+
+    # Mock the FOR UPDATE re-read: same row, still un-revoked, still near-expiry.
+    locked_result = MagicMock()
+    locked_result.scalar_one.return_value = row
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=locked_result)
+    db.commit = AsyncMock()
+
+    svc = WebSessionService(db=db, settings=settings_with_key, http=None)  # type: ignore[arg-type]
+    # Seed a valid encrypted RT so `decrypt(latest.refresh_token_ct)` succeeds.
+    row.refresh_token_ct = svc.encrypt("the-old-refresh-token")
+
+    new_claims = {"sub": "user-x", "name": "User"}
+    new_tokens = MagicMock()
+    new_tokens.access_token = "new-access"
+    new_tokens.refresh_token = "new-refresh"
+    new_tokens.id_token = None
+    new_tokens.access_token_expires_at = datetime.now(UTC) + timedelta(seconds=300)
+    new_tokens.refresh_token_expires_at = datetime.now(UTC) + timedelta(seconds=3600)
+    new_tokens.claims = new_claims
+    svc.refresh = AsyncMock(return_value=new_tokens)  # type: ignore[method-assign]
+
+    out = await svc.silently_refresh_if_needed(row)
+    assert out is row
+    db.commit.assert_awaited_once()
+    # Ciphertexts must be the freshly-encrypted new values.
+    assert svc.decrypt(row.access_token_ct) == "new-access"
+    assert svc.decrypt(row.refresh_token_ct) == "new-refresh"
