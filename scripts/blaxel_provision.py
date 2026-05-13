@@ -35,8 +35,11 @@ def _load_dotenv() -> None:
 
 # Python skill dependencies — installed once per sandbox lifetime; pip is no-op
 # when these are already present at compatible versions. Includes pypdf + pillow
-# for vendored composio PDF helpers (forms / annotations).
-PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx", "pypdf", "pillow"]
+# for vendored composio PDF helpers (forms / annotations), and pdf2image for
+# ``convert_pdf_to_images.py``. Note: ``pdf2image`` shells out to Poppler
+# (``pdftoppm``); the sandbox image must have ``poppler-utils`` installed for
+# conversions to work, not just the PyPI package.
+PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx", "pypdf", "pillow", "pdf2image"]
 # docx-js skill dep on the Node sandbox.
 NODE_SKILL_PACKAGES = ["docx"]
 
