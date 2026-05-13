@@ -5,8 +5,10 @@ Two sandboxes are managed:
   - ``harnex-execute-py``    (Python) — pdf / xlsx / pptx skills
 
 Reads BL_API_KEY and BL_WORKSPACE from the environment (or .env-loaded settings).
-Idempotent — uses ``create_if_not_exists`` for both, and ``pip install`` for the
-Python sandbox is no-op when the packages are already current.
+Idempotent — uses ``create_if_not_exists`` for both. On Debian-based Python
+sandboxes we ``apt-get install`` ``poppler-utils`` (for ``pdf2image`` / ``pdftoppm``)
+and ``libreoffice-calc`` (headless ``soffice`` for ``recalc.py``), then ``pip install``.
+Skip system packages with ``BLAXEL_SKIP_PYTHON_SYSTEM_PACKAGES=1``.
 
 Usage:
     uv run python scripts/blaxel_provision.py
@@ -19,6 +21,23 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _proc_exit_code(proc: Any) -> int:
+    return int(getattr(proc, "exit_code", 0) or 0)
+
+
+def _proc_text(proc: Any) -> str:
+    logs = getattr(proc, "logs", None)
+    if logs:
+        return str(logs).strip()
+    parts = []
+    for attr in ("stderr", "stdout"):
+        v = getattr(proc, attr, None)
+        if v:
+            parts.append(str(v))
+    joined = "\n".join(parts).strip()
+    return joined or str(proc)
 
 
 def _load_dotenv() -> None:
@@ -36,9 +55,8 @@ def _load_dotenv() -> None:
 # Python skill dependencies — installed once per sandbox lifetime; pip is no-op
 # when these are already present at compatible versions. Includes pypdf + pillow
 # for vendored composio PDF helpers (forms / annotations), and pdf2image for
-# ``convert_pdf_to_images.py``. Note: ``pdf2image`` shells out to Poppler
-# (``pdftoppm``); the sandbox image must have ``poppler-utils`` installed for
-# conversions to work, not just the PyPI package.
+# ``convert_pdf_to_images.py``. Poppler (~``pdftoppm``) and LibreOffice (``soffice``)
+# come from APT via `_install_python_system_packages`, not PyPI.
 PY_SKILL_PACKAGES = ["reportlab", "openpyxl", "python-pptx", "pypdf", "pillow", "pdf2image"]
 # docx-js skill dep on the Node sandbox.
 NODE_SKILL_PACKAGES = ["docx"]
@@ -136,6 +154,78 @@ async def _install_python_packages(sandbox: Any) -> None:
     )
 
 
+def _skip_python_system_packages() -> bool:
+    raw = os.environ.get("BLAXEL_SKIP_PYTHON_SYSTEM_PACKAGES", "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+async def _install_python_system_packages(sandbox: Any) -> bool | None:
+    """Debian APT deps for bundled skill helpers (pdf2image, xlsx LibreOffice).
+
+    Requires root + ``apt-get`` in the sandbox image (``blaxel/py-app:latest`` is
+    typically Debian-based). Non-APT images skip with a log line.
+
+    Returns ``True`` if packages were installed (caller should verify), ``False`` if
+    skipped or not applicable, ``None`` if apt failed non-zero.
+    """
+    if _skip_python_system_packages():
+        print(
+            "apt install: skipped (BLAXEL_SKIP_PYTHON_SYSTEM_PACKAGES); "
+            "ensure poppler-utils + libreoffice-calc (soffice) for PDF / XLSX skills"
+        )
+        return False
+
+    probe = await sandbox.process.exec(
+        {"command": "bash -lc 'command -v apt-get'", "wait_for_completion": True}
+    )
+    if _proc_exit_code(probe) != 0:
+        print(
+            "blaxel_provision: no apt-get on this image; skipping system packages "
+            "(use Debian-based BLAXEL_PYTHON_SANDBOX_IMAGE or install poppler/soffice in a custom image)"
+        )
+        return False
+
+    apt_cmd = (
+        "bash -lc '"
+        "export DEBIAN_FRONTEND=noninteractive; "
+        "apt-get update -qq && "
+        "apt-get install -y --no-install-recommends poppler-utils libreoffice-calc'"
+    )
+    proc = await sandbox.process.exec(
+        {
+            "command": apt_cmd,
+            "wait_for_completion": True,
+            "timeout": 900,
+        }
+    )
+    print("apt install (poppler-utils, libreoffice-calc):", _proc_text(proc))
+    code = _proc_exit_code(proc)
+    if code != 0:
+        print(
+            "blaxel_provision: apt install failed "
+            f"(exit {code}); bundled PDF/XLSX helpers may not run.",
+            file=sys.stderr,
+        )
+        return None
+    return True
+
+
+async def _verify_python_skill_toolchain(sandbox: Any) -> int:
+    """Sanity-check Poppler, LibreOffice, and PyPI skill imports after provision."""
+    verify_cmd = (
+        "bash -lc '"
+        "command -v pdftoppm >/dev/null && "
+        "command -v soffice >/dev/null && "
+        'python3 -c "import PIL, pdf2image, openpyxl, pptx, pypdf, reportlab"'
+        "'"
+    )
+    proc = await sandbox.process.exec(
+        {"command": verify_cmd, "wait_for_completion": True, "timeout": 120}
+    )
+    print("python skill toolchain verify:", _proc_text(proc) or "(no output)")
+    return _proc_exit_code(proc)
+
+
 async def main() -> int:
     _load_dotenv()
     # Resolve sandbox settings after .env has been loaded; otherwise overrides
@@ -175,7 +265,17 @@ async def main() -> int:
         region=cfg.region,
     )
     await _smoke_python(py_sandbox)
+    sys_pkgs = await _install_python_system_packages(py_sandbox)
+    if sys_pkgs is None:
+        return 3
     await _install_python_packages(py_sandbox)
+    if sys_pkgs is True and await _verify_python_skill_toolchain(py_sandbox) != 0:
+        print(
+            "blaxel_provision: post-apt toolchain verify failed "
+            "(check pdftoppm, soffice, pip packages above)",
+            file=sys.stderr,
+        )
+        return 1
 
     return 0
 
