@@ -8,11 +8,14 @@ Keycloak — they live under `tests/integration/`.
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from cryptography.fernet import Fernet
 
 from harnex_api.config import AppSettings, get_settings
+from harnex_api.db.models import WebSession
 from harnex_api.services.web_session import (
     WebSessionConfigError,
     WebSessionService,
@@ -87,3 +90,35 @@ def test_authorize_url_no_idp_hint(settings_with_key: AppSettings) -> None:
         idp_hint=None,
     )
     assert "kc_idp_hint" not in url
+
+
+async def test_revoke_commits_inline(settings_with_key: AppSettings) -> None:
+    """Greptile P1 regression — `_revoke` must commit before returning.
+
+    Without an in-place commit, when `silently_refresh_if_needed` re-raises
+    `WebSessionAuthError`, FastAPI's `get_db` teardown calls
+    `session.rollback()` and the revocation is silently lost — letting the
+    same compromised cookie keep loop-refreshing against Keycloak.
+    """
+    db = MagicMock()
+    db.execute = AsyncMock()
+    db.commit = AsyncMock()
+    svc = WebSessionService(db=db, settings=settings_with_key, http=None)  # type: ignore[arg-type]
+    row = WebSession(
+        sid_hash=b"\x00" * 32,
+        keycloak_user_id="user-x",
+        email=None,
+        access_token_ct=b"x",
+        refresh_token_ct=b"x",
+        id_token_ct=None,
+        claims_cache={},
+        csrf_token="csrf",
+        access_token_expires_at=datetime.now(UTC) + timedelta(seconds=300),
+        refresh_token_expires_at=datetime.now(UTC) + timedelta(seconds=3600),
+        absolute_expires_at=datetime.now(UTC) + timedelta(days=30),
+        idle_expires_at=datetime.now(UTC) + timedelta(hours=24),
+    )
+    await svc._revoke(row, reason="refresh_reuse")
+    db.commit.assert_awaited_once()
+    assert row.revoked_at is not None
+    assert row.revoked_reason == "refresh_reuse"

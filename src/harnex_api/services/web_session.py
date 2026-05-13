@@ -429,12 +429,25 @@ class WebSessionService:
         return latest
 
     async def _revoke(self, row: WebSession, *, reason: str) -> None:
+        """Mark a session revoked and **commit immediately**.
+
+        Revocations must survive the caller's exception path. The reuse-
+        detection flow in `silently_refresh_if_needed` revokes and then
+        re-raises `WebSessionAuthError`; the route layer maps that to an
+        `HTTPException`, which triggers `get_db`'s `session.rollback()`.
+        Without the commit here, the revocation row never lands on disk,
+        every subsequent request finds the session un-revoked, locks it,
+        retries the refresh, and hits Keycloak again — turning a
+        compromised session into a per-request token-storm against
+        Keycloak's `/token` endpoint. Committing in-place breaks that loop.
+        """
         now = _now()
         await self._db.execute(
             update(WebSession)
             .where(WebSession.id == row.id)
             .values(revoked_at=now, revoked_reason=reason, updated_at=func.now())
         )
+        await self._db.commit()
         row.revoked_at = now
         row.revoked_reason = reason
 
