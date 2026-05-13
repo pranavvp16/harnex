@@ -355,7 +355,57 @@ function MarketingPage() {
         >
           <HarnexLogo size={22} />
           <nav className="marketing-nav">
-            {["The Problem", "How it works", "Use cases", "Security", "Pricing"].map((l) => (
+            <a
+              href="#the-problem"
+              style={{
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: "var(--slate)",
+                padding: "5px 10px",
+                borderRadius: "var(--r-sm)",
+                transition: "color 80ms",
+                textDecoration: "none",
+              }}
+              onMouseEnter={(e) => ((e.target as HTMLElement).style.color = "var(--ink)")}
+              onMouseLeave={(e) => ((e.target as HTMLElement).style.color = "var(--slate)")}
+            >
+              The Problem
+            </a>
+            <Link
+              to="/skills"
+              style={{
+                fontSize: 13.5,
+                fontWeight: 500,
+                color: "var(--slate)",
+                padding: "5px 10px",
+                borderRadius: "var(--r-sm)",
+                transition: "color 80ms",
+                textDecoration: "none",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--ink)")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--slate)")}
+            >
+              Skills
+              <span
+                style={{
+                  fontSize: 9.5,
+                  padding: "1px 5px",
+                  borderRadius: 3,
+                  background: "var(--accent-soft)",
+                  color: "var(--accent-ink)",
+                  border: "1px solid var(--accent-border)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  fontWeight: 600,
+                }}
+              >
+                New
+              </span>
+            </Link>
+            {["How it works", "Use cases", "Security", "Pricing"].map((l) => (
               <a
                 key={l}
                 href={`#${l.toLowerCase().replace(/ /g, "-")}`}
