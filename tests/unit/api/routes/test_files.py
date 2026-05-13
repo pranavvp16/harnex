@@ -161,7 +161,31 @@ async def test_list_files_drops_rows_missing_storage_metadata(
     page = await list_files(ctx=ctx, db=session, limit=50, offset=0, skill_key=None)
 
     assert page.items == []
+    assert page.total == 0  # dropped row should be subtracted from total
     assert storage_fake.refresh_calls == []
+
+
+async def test_list_files_drops_row_when_refresh_url_raises() -> None:
+    """A backend refresh failure (e.g. Azure PermissionError) must not 500 the page."""
+
+    class _FailingStorage(_RecordingStorage):
+        async def refresh_url(self, **kwargs: Any) -> str:  # type: ignore[override]
+            raise PermissionError("storage_key not under tenants/{tenant_id}/")
+
+    fake = _FailingStorage()
+    set_object_storage(fake)
+    try:
+        tenant_id = uuid.uuid4()
+        ctx = TenantContext(tenant_id=tenant_id, subject="dev")
+        row = _fake_execution(tenant_id=tenant_id)
+        session = _mock_session_for_list([row])
+
+        page = await list_files(ctx=ctx, db=session, limit=50, offset=0, skill_key=None)
+
+        assert page.items == []
+        assert page.total == 0
+    finally:
+        set_object_storage(None)  # type: ignore[arg-type]
 
 
 async def test_delete_file_removes_blob_and_nulls_pointers(
