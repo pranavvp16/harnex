@@ -64,12 +64,24 @@ async def _build_file_item(
     content_type = _summary_str(summary, "content_type") or "application/octet-stream"
     if not storage_key or not filename:
         return None
-    download_url = await storage.refresh_url(
-        tenant_id=row.tenant_id,
-        storage_key=storage_key,
-        content_type=content_type,
-        ttl_seconds=ttl_seconds,
-    )
+    try:
+        download_url = await storage.refresh_url(
+            tenant_id=row.tenant_id,
+            storage_key=storage_key,
+            content_type=content_type,
+            ttl_seconds=ttl_seconds,
+        )
+    except Exception as exc:
+        # Azure raises PermissionError for cross-tenant storage_keys; either backend
+        # can raise on transient network errors. Drop the row instead of 500ing the
+        # whole listing — same defensive posture as the missing-metadata branch above.
+        _log.warning(
+            "file_refresh_url_failed",
+            execution_id=str(row.id),
+            storage_key=storage_key,
+            error=str(exc),
+        )
+        return None
     return FileItem(
         id=row.id,
         filename=filename,
@@ -107,13 +119,19 @@ async def list_files(
     )
     storage = get_object_storage()
     items: list[FileItem] = []
+    dropped = 0
     for r in rows.scalars().all():
         item = await _build_file_item(
             r, storage=storage, ttl_seconds=settings.skill_download_url_ttl_seconds
         )
-        if item is not None:
-            items.append(item)
-    return Page(items=items, total=total, limit=limit, offset=offset)
+        if item is None:
+            dropped += 1
+            continue
+        items.append(item)
+    # Rows we just dropped (missing storage_key/filename or a backend refresh
+    # error) shouldn't inflate the count the client uses to drive its "Next"
+    # button — otherwise hasNext stays true on a page that would render empty.
+    return Page(items=items, total=max(0, total - dropped), limit=limit, offset=offset)
 
 
 @router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
