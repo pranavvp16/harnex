@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.responses import RedirectResponse
 
 from harnex_api import __version__
+from harnex_api.api.middleware.csrf import CsrfMiddleware
 from harnex_api.api.routes import (
     api_keys,
     artifacts,
@@ -26,6 +27,9 @@ from harnex_api.api.routes import (
     usage,
 )
 from harnex_api.api.routes import auth as auth_routes
+from harnex_api.api.routes import (
+    session as session_routes,
+)
 from harnex_api.auth.vault import InfisicalVault, InMemoryVault, set_vault
 from harnex_api.config import AppSettings, get_settings
 from harnex_api.connectors.seed import ensure_connector_catalog
@@ -171,6 +175,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Double-submit CSRF for cookie-authenticated requests. /mcp and Bearer
+    # hnx... clients are exempt — see CsrfMiddleware._EXEMPT_PATH_PREFIXES.
+    app.add_middleware(CsrfMiddleware)
+
     if settings.env in ("local", "dev"):
         app.add_middleware(
             CORSMiddleware,
@@ -224,6 +232,7 @@ def create_app() -> FastAPI:
     app.include_router(tenants.router)
     app.include_router(me.router)
     app.include_router(auth_routes.router)
+    app.include_router(session_routes.router)
     app.include_router(artifacts.router)
     app.include_router(files.router)
 

@@ -5,15 +5,14 @@ import { useAuth } from "@/lib/auth";
 import { env } from "@/lib/env";
 
 export function useApi(): HarnexClient {
-  const { getAccessToken, devTenantId } = useAuth();
+  const { devTenantId } = useAuth();
   return useMemo(
     () =>
       buildClient({
-        getAccessToken,
-        // Header-only dev tenant is only valid when OIDC was disabled at build time.
-        // Otherwise we must always send the Keycloak access token.
-        devTenantId: env.keycloak ? null : devTenantId,
+        // Header-only dev tenant is only valid for dev builds (VITE_HARNEX_DEV_TENANT).
+        // In real-auth builds the backend resolves the tenant from the cookie session.
+        devTenantId: env.devTenantId ? devTenantId : null,
       }),
-    [getAccessToken, devTenantId],
+    [devTenantId],
   );
 }

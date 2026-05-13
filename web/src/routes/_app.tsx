@@ -131,7 +131,7 @@ function AppShell() {
   });
   const connCount = connections.data?.length ?? null;
 
-  const email = auth.user?.profile.email ?? auth.devTenantId ?? "";
+  const email = auth.user?.email ?? auth.devTenantId ?? "";
   const initials = email
     ? email.slice(0, 2).toUpperCase()
     : "?";

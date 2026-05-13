@@ -29,6 +29,7 @@ dependencies = [
     "orjson>=3.10",
     "redis[hiredis]>=5.2",
     "azure-storage-blob>=12.24",
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

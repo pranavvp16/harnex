@@ -29,6 +29,10 @@ export default defineConfig(({ mode }) => {
           target: devApiTarget,
           changeOrigin: true,
         },
+        "/mcp": {
+          target: devApiTarget,
+          changeOrigin: true,
+        },
       },
     },
   };
