@@ -3,12 +3,14 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Ic } from "@/components/icons";
+import { McpInstallSnippets } from "@/components/McpInstallSnippets";
 import { AlertBox } from "@/components/ui/AlertBox";
 import { Field } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { useApi } from "@/lib/useApi";
+import { env } from "@/lib/env";
 import type {
   ApiKeyScope,
   ApiKeyScopeType,
@@ -411,6 +413,12 @@ function ApiKeysPage() {
                     {formatExpiry(issued.expires_at)}
                   </div>
                 </div>
+              )}
+              {issued && (
+                <McpInstallSnippets
+                  apiUrl={`${env.apiUrl || window.location.origin}/mcp`}
+                  apiKey={issued.plaintext}
+                />
               )}
               <div className="wizard-actions">
                 <span className="toolbar-spacer" />

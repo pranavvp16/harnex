@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Moon, Sun } from "lucide-react";
 
+import { McpInstallSnippets } from "@/components/McpInstallSnippets";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 
@@ -550,7 +551,7 @@ function MarketingPage() {
           }}
         >
           <span style={{ color: "var(--muted)" }}>$</span>
-          <span>npx harnex-mcp --url https://api.harnex.dev --key hx_…</span>
+          <span>HTTPS MCP · https://api.harnex.dev/mcp · Authorization: Bearer hnx…</span>
         </div>
 
         {/* Console preview */}
@@ -1341,6 +1342,46 @@ function MarketingPage() {
                 </Link>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Drop-in MCP client install ── */}
+      <section id="install">
+        <div className="marketing-section" style={{ maxWidth: 1120, margin: "0 auto", padding: "80px 32px" }}>
+          <div className="kicker" style={{ textAlign: "center", marginBottom: 12 }}>Drop in anywhere</div>
+          <h2
+            style={{
+              fontSize: 36,
+              fontWeight: 600,
+              letterSpacing: "-0.03em",
+              textAlign: "center",
+              margin: "0 0 12px",
+              color: "var(--ink)",
+            }}
+          >
+            One MCP server.{" "}
+            <span className="serif-i" style={{ color: "var(--accent)" }}>Every</span>
+            {" "}client.
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              fontSize: 15,
+              color: "var(--slate)",
+              maxWidth: 560,
+              margin: "0 auto 36px",
+              lineHeight: 1.65,
+            }}
+          >
+            Copy the snippet for your runtime. Replace the key with one you issue from your console.
+          </p>
+          <div style={{ maxWidth: 760, margin: "0 auto" }}>
+            <McpInstallSnippets
+              apiUrl="https://api.harnex.dev/mcp"
+              apiKey="hnx_YOUR_KEY"
+              compact
+            />
           </div>
         </div>
       </section>
