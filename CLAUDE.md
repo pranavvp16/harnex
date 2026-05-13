@@ -98,6 +98,8 @@ The TanStack Router plugin regenerates `web/src/routeTree.gen.ts` automatically 
 
 ### Blaxel sandbox
 
+The API runs code-mode in two Blaxel sandboxes by default: Node (``harnex-execute`` / ``blaxel/node:latest``) for HTTP + docx-js, and Python (``harnex-execute-py`` / ``blaxel/py-app:latest``) for built-in pdf / xlsx / pptx helpers. Document skills that use ``pdf2image`` need **Poppler** (``poppler-utils``, ``pdftoppm``); ``xlsx/recalc.py`` needs **LibreOffice** (``soffice``, via ``libreoffice-calc`` on Debian). ``uv run python scripts/blaxel_provision.py`` installs those with ``apt-get`` when the image has ``apt-get``, then ``pip``, then verifies binaries + imports. Skip apt with ``BLAXEL_SKIP_PYTHON_SYSTEM_PACKAGES=1`` if you bake deps into a custom ``BLAXEL_PYTHON_SANDBOX_IMAGE``.
+
 ```bash
 uv run python scripts/blaxel_provision.py   # idempotent; reads BLAXEL_* from .env
 ```
