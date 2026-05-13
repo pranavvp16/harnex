@@ -5,7 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from harnex_api.api.dependencies.auth import TenantContext, get_tenant_context
 from harnex_api.api.dependencies.db import get_db
-from harnex_api.api.schemas.search import SearchHitOut, SearchRequest, SearchResponse
+from harnex_api.api.schemas.search import (
+    SearchHitOut,
+    SearchRequest,
+    SearchResponse,
+    SkillHitOut,
+)
 from harnex_api.logging import get_logger
 from harnex_api.services.search.service import SearchService
 from harnex_api.services.usage.monthly import bump_usage_monthly
@@ -25,6 +30,7 @@ async def search(
         query=payload.query,
         top_k=payload.top_k,
         connector_filter=payload.connector_filter,
+        include_skills=payload.skills,
     )
     log = get_logger(__name__)
     try:
@@ -51,6 +57,17 @@ async def search(
         ],
         clarification_needed=result.clarification_needed,
         candidate_connectors=result.candidate_connectors,
+        skills=[
+            SkillHitOut(
+                skill_key=s.skill_key,
+                name=s.name,
+                runtime=s.runtime,
+                output_format=s.output_format,
+                instructions=s.instructions,
+                score=s.score,
+            )
+            for s in result.skills
+        ],
     )
 
 

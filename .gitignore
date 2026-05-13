@@ -17,6 +17,8 @@ build/
 .vscode/
 node_modules/
 uv.lock
+artifacts/
+*.tsbuildinfo
 .gstack/
 .claude/
 PRODUCTION_DEPLOYMENT.local.md

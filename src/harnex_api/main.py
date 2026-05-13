@@ -14,10 +14,12 @@ from starlette.responses import RedirectResponse
 from harnex_api import __version__
 from harnex_api.api.routes import (
     api_keys,
+    artifacts,
     connections,
     connectors,
     execute,
     executions,
+    files,
     me,
     search,
     tenants,
@@ -45,19 +47,40 @@ async def _seed_connector_catalog() -> None:
         await ensure_connector_catalog(session)
 
 
+async def _seed_builtin_skills() -> int:
+    """Idempotent built-in skill seed (docx/pdf/xlsx/pptx)."""
+    from harnex_api.services.skills.registry import seed_builtin_skills
+
+    async with session_scope() as session:
+        return await seed_builtin_skills(session)
+
+
 async def _provision_sandbox(settings: AppSettings) -> None:
-    """Idempotent sandbox warm-up — mirrors scripts/blaxel_provision.py."""
+    """Idempotent sandbox warm-up — mirrors scripts/blaxel_provision.py.
+
+    Provisions both the Node (default code-mode + docx skill) and Python
+    (pdf/xlsx/pptx skill) sandboxes. Package installs happen out-of-band via
+    ``scripts/blaxel_provision.py`` — startup just ensures the sandbox exists.
+    """
     os.environ.setdefault("BL_API_KEY", settings.blaxel_api_key.get_secret_value())
     os.environ.setdefault("BL_WORKSPACE", settings.blaxel_workspace)
     from blaxel.core import SandboxInstance  # local import — keep SDK out of cold path
 
-    config: dict[str, Any] = {
-        "name": settings.blaxel_sandbox_name,
-        "image": settings.blaxel_sandbox_image,
-        "memory": settings.blaxel_sandbox_memory_mb,
-        "region": settings.blaxel_sandbox_region,
-    }
-    await SandboxInstance.create_if_not_exists(config)
+    for cfg in (
+        {
+            "name": settings.blaxel_sandbox_name,
+            "image": settings.blaxel_sandbox_image,
+            "memory": settings.blaxel_sandbox_memory_mb,
+            "region": settings.blaxel_sandbox_region,
+        },
+        {
+            "name": settings.blaxel_python_sandbox_name,
+            "image": settings.blaxel_python_sandbox_image,
+            "memory": settings.blaxel_sandbox_memory_mb,
+            "region": settings.blaxel_sandbox_region,
+        },
+    ):
+        await SandboxInstance.create_if_not_exists(cfg)
 
 
 @asynccontextmanager
@@ -114,6 +137,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception as exc:
             # Non-fatal — DB may be unreachable at boot in some local setups.
             log.warning("connector_catalog_seed_failed", error=str(exc))
+        try:
+            changed = await _seed_builtin_skills()
+            log.info("builtin_skills_seeded", changed=changed)
+        except Exception as exc:
+            # Non-fatal — embedding provider or DB may be unreachable at boot.
+            log.warning("builtin_skills_seed_failed", error=str(exc))
         if settings.env in ("local", "dev"):
             try:
                 await _seed_dev_tenant()
@@ -195,6 +224,8 @@ def create_app() -> FastAPI:
     app.include_router(tenants.router)
     app.include_router(me.router)
     app.include_router(auth_routes.router)
+    app.include_router(artifacts.router)
+    app.include_router(files.router)
 
     @app.api_route(
         "/mcp",

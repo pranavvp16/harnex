@@ -81,6 +81,12 @@ class ExecutionStatus(enum.StrEnum):
 class ExecutionMode(enum.StrEnum):
     code = "code"
     structured = "structured"
+    skill = "skill"
+
+
+class SkillRuntime(enum.StrEnum):
+    node = "node"
+    python = "python"
 
 
 class SpecSourceType(enum.StrEnum):
@@ -319,8 +325,51 @@ class Execution(Base, TimestampMixin):
     error_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Populated only for `mode = "skill"` runs.
+    artifact_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    artifact_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     connection: Mapped[Connection | None] = relationship(back_populates="executions")
+
+
+class Skill(Base, TimestampMixin):
+    """Global catalog of built-in document-building skills.
+
+    Skills are not tenant-scoped — they're the same vendored recipes available
+    to every tenant. Search retrieval against this table is opt-in (the MCP
+    `search` tool takes a `skills=True` arg); the agent decides when it wants
+    to look for a file-building recipe.
+
+    Only the `overview` field gets embedded — `instructions` is the full
+    SKILL.md returned inline in the search response so the agent can write
+    code against it. See `services/skills/registry.py` for seeding.
+    """
+
+    __tablename__ = "skills"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    runtime: Mapped[SkillRuntime] = mapped_column(
+        Enum(SkillRuntime, name="skill_runtime"), nullable=False
+    )
+    output_format: Mapped[str] = mapped_column(String(32), nullable=False)
+    overview: Mapped[str] = mapped_column(Text, nullable=False)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False)
+    scripts: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
+    metadata_: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
+    embedding_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    embedding_dim: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(
+        Vector(get_settings().openai_embedding_dim), nullable=False
+    )
+    content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    indexed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # `search_tsv` generated column is added in the alembic migration only.
 
 
 class UsageMonthly(Base, TimestampMixin):
@@ -404,6 +453,8 @@ __all__ = [
     "ExecutionStatus",
     "OAuthState",
     "OperationChunk",
+    "Skill",
+    "SkillRuntime",
     "SpecSourceType",
     "Tenant",
     "TenantMembership",

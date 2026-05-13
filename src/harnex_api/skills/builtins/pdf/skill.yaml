@@ -1,0 +1,13 @@
+key: pdf
+name: PDF Document Builder
+runtime: python
+output_format: pdf
+overview: >-
+  Build PDF documents with text, headings, tables, and images using ReportLab.
+  Produces a downloadable PDF file. Use when the user asks for a PDF, printable
+  report, invoice, certificate, or .pdf file.
+metadata:
+  mime_type: application/pdf
+  libraries:
+    - reportlab
+  max_output_bytes: 26214400

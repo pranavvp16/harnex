@@ -73,6 +73,15 @@ class AppSettings(BaseSettings):
     blaxel_sandbox_region: str = Field("us-pdx-1", alias="BLAXEL_SANDBOX_REGION")
     blaxel_sandbox_memory_mb: int = Field(2048, alias="BLAXEL_SANDBOX_MEMORY_MB")
     blaxel_default_timeout_seconds: int = Field(30, alias="BLAXEL_DEFAULT_TIMEOUT_SECONDS")
+    # A separate sandbox is provisioned for Python-runtime skills (pdf, xlsx,
+    # pptx). Splitting by runtime keeps the per-image dep footprint minimal
+    # instead of trying to coerce one image to host both stacks.
+    blaxel_python_sandbox_name: str = Field(
+        "harnex-execute-py", alias="BLAXEL_PYTHON_SANDBOX_NAME"
+    )
+    blaxel_python_sandbox_image: str = Field(
+        "blaxel/py-app:latest", alias="BLAXEL_PYTHON_SANDBOX_IMAGE"
+    )
 
     stripe_api_key: SecretStr = Field(SecretStr(""), alias="STRIPE_API_KEY")
     stripe_webhook_secret: SecretStr = Field(SecretStr(""), alias="STRIPE_WEBHOOK_SECRET")
@@ -82,6 +91,25 @@ class AppSettings(BaseSettings):
 
     use_fake_embeddings: bool = Field(False, alias="HARNEX_USE_FAKE_EMBEDDINGS")
     use_fake_vector_search: bool = Field(False, alias="HARNEX_USE_FAKE_VECTOR_SEARCH")
+
+    # Skill artifact storage. When the Azure account/key are empty we fall back
+    # to a filesystem backend that serves bytes via /v1/artifacts/... — only
+    # acceptable for local/dev.
+    azure_storage_account: str = Field("", alias="HARNEX_AZURE_STORAGE_ACCOUNT")
+    azure_storage_key: SecretStr = Field(SecretStr(""), alias="HARNEX_AZURE_STORAGE_KEY")
+    azure_storage_container: str = Field(
+        "harnex-artifacts", alias="HARNEX_AZURE_STORAGE_CONTAINER"
+    )
+    local_artifacts_dir: str = Field("artifacts", alias="HARNEX_LOCAL_ARTIFACTS_DIR")
+    skill_download_url_ttl_seconds: int = Field(
+        900, alias="HARNEX_SKILL_DOWNLOAD_URL_TTL_SECONDS"
+    )
+    skill_max_artifact_bytes: int = Field(
+        25 * 1024 * 1024, alias="HARNEX_SKILL_MAX_ARTIFACT_BYTES"
+    )
+    skill_execute_timeout_seconds: int = Field(
+        120, alias="HARNEX_SKILL_EXECUTE_TIMEOUT_SECONDS"
+    )
 
     # When empty, tenant-create rate limiting falls back to an in-memory deque (dev-only;
     # resets per process and does not coordinate across workers).
