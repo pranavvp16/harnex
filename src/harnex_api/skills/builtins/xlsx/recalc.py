@@ -92,11 +92,13 @@ def recalc(filename, timeout=30):
     result = subprocess.run(cmd, capture_output=True, text=True)
     
     if result.returncode != 0 and result.returncode != 124:  # 124 is timeout exit code
-        error_msg = result.stderr or 'Unknown error during recalculation'
-        if 'Module1' in error_msg or 'RecalculateAndSave' not in error_msg:
-            return {'error': 'LibreOffice macro not configured properly'}
-        else:
-            return {'error': error_msg}
+        stderr = (result.stderr or "").strip()
+        stdout = (result.stdout or "").strip()
+        error_msg = "\n".join(p for p in (stderr, stdout) if p) or "Unknown error during recalculation"
+        # Treat as macro misconfiguration only when LO names the invoked Basic macro.
+        if "Module1" in error_msg or "RecalculateAndSave" in error_msg:
+            return {"error": "LibreOffice macro not configured properly"}
+        return {"error": error_msg}
     
     # Check for Excel errors in the recalculated file - scan ALL cells
     try:
