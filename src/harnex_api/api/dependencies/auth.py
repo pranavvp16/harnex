@@ -6,15 +6,19 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from jose import ExpiredSignatureError, JWTError, jwt  # type: ignore[import-untyped]
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harnex_api.api.dependencies.db import get_db
 from harnex_api.config import AppSettings, get_settings
-from harnex_api.db.models import TenantMembership
+from harnex_api.db.models import TenantMembership, WebSession
 from harnex_api.logging import get_logger
+from harnex_api.services.web_session import (
+    WebSessionAuthError,
+    WebSessionService,
+)
 
 
 @dataclass(frozen=True)
@@ -171,19 +175,82 @@ def _user_from_claims(claims: dict[str, Any]) -> AuthenticatedUser:
     )
 
 
-async def get_authenticated_user(
-    authorization: str | None = Header(default=None),
-) -> AuthenticatedUser:
-    """Require a valid Keycloak JWT; return the user identity."""
-    settings = get_settings()
-    token = _bearer_token(authorization)
-    if not token:
+def _client_ip(request: Request) -> str | None:
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip() or None
+    return request.client.host if request.client else None
+
+
+async def _try_cookie_session(
+    request: Request,
+    db: AsyncSession,
+    settings: AppSettings,
+) -> WebSession | None:
+    """Resolve, refresh, and touch a session row from the cookie.
+
+    Returns the live `WebSession` row, or None if no usable cookie is present.
+    Raises 401 only when a cookie *is* present but resolves to an invalid /
+    expired / refresh-failed session — the SPA bounces to /login on that.
+    """
+    sid = request.cookies.get(settings.session_cookie_name)
+    if not sid:
+        return None
+    from harnex_api.services.web_session import get_shared_http  # local: avoid cycles
+
+    svc = WebSessionService(db, settings, get_shared_http())
+    row = await svc.lookup(sid)
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="missing bearer token",
+            detail="session_expired",
         )
-    claims = await _verify_jwt(token, settings)
-    return _user_from_claims(claims)
+    try:
+        row = await svc.silently_refresh_if_needed(row)
+    except WebSessionAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="session_expired",
+        ) from exc
+    await svc.touch(row, ip=_client_ip(request), ua=request.headers.get("user-agent"))
+    return row
+
+
+def _user_from_session(row: WebSession) -> AuthenticatedUser:
+    claims: dict[str, Any] = row.claims_cache if isinstance(row.claims_cache, dict) else {}
+    sub = row.keycloak_user_id
+    name = claims.get("name") or claims.get("preferred_username")
+    return AuthenticatedUser(
+        sub=sub,
+        email=row.email,
+        full_name=name if isinstance(name, str) else None,
+    )
+
+
+async def get_authenticated_user(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> AuthenticatedUser:
+    """Require a logged-in caller; return identity.
+
+    Resolves auth in this order:
+    1. Cookie session (BFF — the SPA's path).
+    2. Bearer JWT (legacy; only honored while `allow_bearer_auth` is True).
+    """
+    settings = get_settings()
+    row = await _try_cookie_session(request, db, settings)
+    if row is not None:
+        return _user_from_session(row)
+    if settings.allow_bearer_auth:
+        token = _bearer_token(authorization)
+        if token:
+            claims = await _verify_jwt(token, settings)
+            return _user_from_claims(claims)
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="missing credentials",
+    )
 
 
 def _parse_uuid(raw: str, *, header_name: str) -> UUID:
@@ -223,6 +290,7 @@ async def _resolve_tenant_for_user(
 
 
 async def get_tenant_context(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_harnex_tenant: str | None = Header(default=None),
     x_harnex_dev_tenant: str | None = Header(default=None),
@@ -231,31 +299,44 @@ async def get_tenant_context(
     """Resolve the caller's tenant for a tenant-scoped route.
 
     Order:
-    1. `Authorization: Bearer <jwt>` → verify against Keycloak JWKS, look up
-       a `TenantMembership` for the `sub`. `X-Harnex-Tenant: <uuid>` picks
-       a workspace when the user belongs to several.
-    2. (local / compose dev only, no Authorization header)
+    1. BFF cookie session → look up by sha256(sid), silently refresh if the
+       access token is near expiry, resolve `TenantMembership` for the `sub`.
+    2. `Authorization: Bearer <jwt>` (only while `allow_bearer_auth` is True)
+       → verify against Keycloak JWKS, same resolution.
+    3. (local / compose dev only, no auth)
        `X-Harnex-Dev-Tenant: <uuid>` → tenant id taken verbatim, subject="dev".
        Keeps integration tests, the local SPA, and `docker compose` (default
        `HARNEX_ENV=dev`) working without a real Keycloak. The gate is
        `HARNEX_ENV` ∈ {`local`, `dev`}; staging/production ignore the header.
-    3. Otherwise → 401.
+    4. Otherwise → 401.
+
+    `X-Harnex-Tenant: <uuid>` disambiguates when the caller belongs to many
+    workspaces; ignored for the dev-tenant header path.
     """
     settings = get_settings()
     log = get_logger("harnex_api.auth")
-    token = _bearer_token(authorization)
-    if token:
-        claims = await _verify_jwt(token, settings)
-        user = _user_from_claims(claims)
-        requested = (
-            _parse_uuid(x_harnex_tenant, header_name="X-Harnex-Tenant")
-            if x_harnex_tenant
-            else None
-        )
+    requested = (
+        _parse_uuid(x_harnex_tenant, header_name="X-Harnex-Tenant")
+        if x_harnex_tenant
+        else None
+    )
+
+    row = await _try_cookie_session(request, db, settings)
+    if row is not None:
         tenant_id = await _resolve_tenant_for_user(
-            db, sub=user.sub, requested_tenant_id=requested
+            db, sub=row.keycloak_user_id, requested_tenant_id=requested
         )
-        return TenantContext(tenant_id=tenant_id, subject=user.sub)
+        return TenantContext(tenant_id=tenant_id, subject=row.keycloak_user_id)
+
+    if settings.allow_bearer_auth:
+        token = _bearer_token(authorization)
+        if token:
+            claims = await _verify_jwt(token, settings)
+            user = _user_from_claims(claims)
+            tenant_id = await _resolve_tenant_for_user(
+                db, sub=user.sub, requested_tenant_id=requested
+            )
+            return TenantContext(tenant_id=tenant_id, subject=user.sub)
 
     if settings.env in ("local", "dev") and x_harnex_dev_tenant:
         return TenantContext(
@@ -274,12 +355,13 @@ async def get_tenant_context(
         "auth_missing",
         env=settings.env,
         has_authorization=authorization is not None,
+        has_cookie=request.cookies.get(settings.session_cookie_name) is not None,
         has_dev_tenant=x_harnex_dev_tenant is not None,
         has_tenant_header=x_harnex_tenant is not None,
     )
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="missing bearer token",
+        detail="missing credentials",
     )
 
 

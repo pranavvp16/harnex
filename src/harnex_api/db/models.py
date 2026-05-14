@@ -439,6 +439,51 @@ class OAuthState(Base, TimestampMixin):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WebSession(Base, TimestampMixin):
+    """Server-side console session backing the BFF cookie auth.
+
+    The browser only carries an opaque `harnex_sid` cookie; its SHA-256 lands
+    in `sid_hash` so a stolen DB dump can't be replayed. Keycloak access /
+    refresh / id tokens are stored Fernet-encrypted in *_ct columns.
+    """
+
+    __tablename__ = "web_sessions"
+    __table_args__ = (
+        Index("ix_web_sessions_idle_expires_at", "idle_expires_at"),
+        Index("ix_web_sessions_absolute_expires_at", "absolute_expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    sid_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False, unique=True, index=True)
+    keycloak_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+    access_token_ct: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    refresh_token_ct: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    id_token_ct: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+
+    claims_cache: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    csrf_token: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    access_token_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    refresh_token_expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    absolute_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    idle_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_seen_ua: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 __all__ = [
     "JSON",
     "ApiKey",
@@ -461,4 +506,5 @@ __all__ = [
     "TenantPlan",
     "TenantRole",
     "UsageMonthly",
+    "WebSession",
 ]
