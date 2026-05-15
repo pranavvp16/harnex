@@ -1,0 +1,40 @@
+name: "Feature Request"
+description: "Suggest an enhancement to Harnex."
+title: "[Feature] <short description>"
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What problem does this solve?"
+      description: "Describe the situation or limitation you're running into."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "Describe the solution you'd like"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives you've considered"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Area"
+      options:
+        - "Connector contract"
+        - "Auth / secrets"
+        - "Ingestion / spec parsing"
+        - "Search"
+        - "Execute / sandbox"
+        - "MCP surface"
+        - "REST API (internal)"
+        - "Console UI"
+        - "DevOps / infra"
+        - "Other"
