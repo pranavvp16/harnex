@@ -68,12 +68,16 @@ if [[ -z "${ADM_ID}" ]]; then
   exit 1
 fi
 
-if [[ -n "${KEYCLOAK_ADMIN_CLIENT_SECRET:-}" ]]; then
-  echo "==> Rotating harnex-admin-cli secret"
-  kcadm update "clients/${ADM_ID}" -r "${REALM}" \
-    -s "secret=${KEYCLOAK_ADMIN_CLIENT_SECRET}"
-  echo "==> harnex-admin-cli secret rotated — restart api so it picks up the new secret"
+# The imported realm has an empty service-account secret — the script MUST
+# set one (either from KEYCLOAK_ADMIN_CLIENT_SECRET env or generate one).
+if [[ -z "${KEYCLOAK_ADMIN_CLIENT_SECRET:-}" ]]; then
+  echo "==> Generating random harnex-admin-cli secret"
+  KEYCLOAK_ADMIN_CLIENT_SECRET="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32)"
 fi
+echo "==> Setting harnex-admin-cli secret"
+kcadm update "clients/${ADM_ID}" -r "${REALM}" \
+  -s "secret=${KEYCLOAK_ADMIN_CLIENT_SECRET}"
+echo "==> harnex-admin-cli secret set — update KEYCLOAK_ADMIN_CLIENT_SECRET in .env and restart the api"
 
 # The sign-up flow calls POST /admin/realms/harnex/users via the harnex-admin-cli
 # service account. Without realm-management.manage-users the call returns 403:

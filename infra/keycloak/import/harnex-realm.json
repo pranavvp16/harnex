@@ -62,7 +62,7 @@
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": true,
-      "secret": "change-me-after-import",
+      "secret": "",
       "attributes": {
         "client.use.lightweight.access.token.enabled": "false"
       }
