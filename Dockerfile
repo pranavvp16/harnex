@@ -20,7 +20,9 @@ COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Run as non-root user for container security.
-RUN useradd --system --create-home app && chown -R app:app /app
+RUN useradd --system --create-home app \
+    && mkdir -p /app/artifacts \
+    && chown -R app:app /app
 USER app
 
 EXPOSE 8000
