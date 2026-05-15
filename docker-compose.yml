@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-harnex}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - harnex_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -59,7 +59,7 @@ services:
     volumes:
       - ./infra/keycloak/import:/opt/keycloak/data/import:ro
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       keycloak-db:
         condition: service_healthy
@@ -106,7 +106,7 @@ services:
       SMTP_PASSWORD: ${INFISICAL_SMTP_PASSWORD:-}
       SMTP_FROM_ADDRESS: ${INFISICAL_SMTP_FROM_ADDRESS:-noreply@localhost}
     ports:
-      - "8090:8080"
+      - "127.0.0.1:8090:8080"
     depends_on:
       infisical-db:
         condition: service_healthy
@@ -174,7 +174,7 @@ services:
       BLAXEL_PYTHON_SANDBOX_NAME: ${BLAXEL_PYTHON_SANDBOX_NAME:-harnex-execute-py}
       BLAXEL_PYTHON_SANDBOX_IMAGE: ${BLAXEL_PYTHON_SANDBOX_IMAGE:-blaxel/py-app:latest}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -196,7 +196,7 @@ services:
         VITE_HARNEX_API_URL: ${VITE_HARNEX_API_URL:-http://localhost:8000}
         VITE_HARNEX_DEV_TENANT: ${VITE_HARNEX_DEV_TENANT:-}
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
       api:
         condition: service_healthy

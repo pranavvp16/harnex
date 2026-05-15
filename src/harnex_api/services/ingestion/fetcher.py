@@ -10,6 +10,7 @@ import yaml
 from openapi_spec_validator import validate as validate_openapi
 
 from harnex_api.connectors.base import ConnectionConfig, LoadedSpec
+from harnex_api.services.ssrf import guard_public_http_url
 
 
 class SpecFetchError(Exception):
@@ -155,6 +156,10 @@ def parse_spec_bytes(data: bytes) -> ParseResult:
 
 
 async def fetch_spec_from_url(url: str, *, timeout_seconds: float = 30.0) -> LoadedSpec:
+    # SSRF guard: reject internal/metadata endpoints before making any request.
+    ok, msg, _ips = await guard_public_http_url(url)
+    if not ok:
+        raise SpecFetchError(f"blocked spec URL: {msg}")
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
             resp = await client.get(url)

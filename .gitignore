@@ -16,7 +16,7 @@ build/
 .idea/
 .vscode/
 node_modules/
-uv.lock
+# uv.lock must be tracked for reproducible builds — removed from gitignore.
 artifacts/
 *.tsbuildinfo
 .gstack/

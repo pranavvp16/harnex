@@ -184,8 +184,8 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
         )
 
     @app.exception_handler(IntegrityError)

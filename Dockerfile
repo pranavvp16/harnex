@@ -19,6 +19,10 @@ COPY alembic.ini ./alembic.ini
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
+# Run as non-root user for container security.
+RUN useradd --system --create-home app && chown -R app:app /app
+USER app
+
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s CMD curl -fsS http://localhost:8000/healthz || exit 1
 ENTRYPOINT ["/docker-entrypoint.sh"]

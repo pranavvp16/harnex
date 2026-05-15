@@ -32,6 +32,9 @@ from harnex_api.services.connection_test import (
 
 router = APIRouter(prefix="/v1/connections", tags=["connections"])
 
+# 5 MB — reasonable for an OpenAPI spec JSON/YAML upload.
+MAX_SPEC_UPLOAD_BYTES = 5 * 1024 * 1024
+
 
 @router.get("", response_model=list[ConnectionOut])
 async def list_connections(
@@ -167,6 +170,11 @@ async def upload_spec(
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="empty upload")
+    if len(raw) > MAX_SPEC_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"spec file exceeds {MAX_SPEC_UPLOAD_BYTES // (1024 * 1024)}MB limit",
+        )
     result = await svc.ingest_uploaded_spec(
         db, tenant_id=ctx.tenant_id, connection_id=connection_id, raw_bytes=raw
     )

@@ -22,14 +22,14 @@ jobs:
     outputs:
       image_tag: ${{ steps.tag.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - id: tag
         # Short SHA is unique enough and easy to correlate with git.
         run: echo "value=${GITHUB_SHA::12}" >>"$GITHUB_OUTPUT"
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5 # v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
@@ -38,10 +38,10 @@ jobs:
       - name: ACR login
         run: az acr login --name "${{ secrets.ACR_NAME }}"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build & push API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: Dockerfile
@@ -53,15 +53,11 @@ jobs:
           cache-to: type=registry,ref=${{ secrets.ACR_LOGIN_SERVER }}/harnex-api:buildcache,mode=max
 
       - name: Build & push web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: ./web
           file: web/Dockerfile
           push: true
-          # The VITE_* values get baked into the SPA bundle at build time, so
-          # changing the public hostname requires a redeploy. Same-origin in prod →
-          # API URL is just the public host. (Keycloak URLs are no longer required —
-          # the BFF handles OIDC server-side.)
           build-args: |
             VITE_HARNEX_API_URL=https://${{ secrets.HARNEX_PUBLIC_HOST }}
           tags: |
@@ -76,7 +72,7 @@ jobs:
     needs: build-and-push
     steps:
       - name: Pull updated repo + run deploy.sh
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
           host: ${{ secrets.VM_SSH_HOST }}
           username: ${{ secrets.VM_SSH_USER }}
