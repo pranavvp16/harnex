@@ -103,7 +103,7 @@ class TestStripeConnectorLoadSpec:
         "harnex_api.services.ingestion.fetcher.fetch_spec_from_url",
         new_callable=AsyncMock,
     )
-    async def test_load_spec_returns_none_on_fetch_failure(
+    async def test_load_spec_propagates_fetch_error(
         self,
         mock_fetch: AsyncMock,
         connector: StripeConnector,
