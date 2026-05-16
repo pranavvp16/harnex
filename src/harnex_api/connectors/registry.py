@@ -52,6 +52,7 @@ def register_builtins() -> None:
         kubernetes,
         linear,
         slack,
+        stripe,
     )
 
     for cls in (
@@ -63,6 +64,7 @@ def register_builtins() -> None:
         kubernetes.KubernetesConnector,
         linear.LinearConnector,
         slack.SlackConnector,
+        stripe.StripeConnector,
     ):
         instance = cls()
         if not registry.has(instance.key):
