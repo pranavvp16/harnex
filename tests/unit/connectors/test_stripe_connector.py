@@ -83,10 +83,10 @@ class TestStripeConnectorLoadSpec:
         connector: StripeConnector,
         bare_connection: ConnectionConfig,
     ) -> None:
+        import dataclasses
+
         custom_url = "https://example.com/custom-spec.json"
-        connection = ConnectionConfig(
-            **{**bare_connection.__dict__, "spec_url": custom_url}
-        )
+        connection = dataclasses.replace(bare_connection, spec_url=custom_url)
         mock_fetch.return_value = LoadedSpec(
             document={"openapi": "3.0.0", "info": {"title": "Custom Stripe"}},
             source="url",
