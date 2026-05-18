@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "Propose or request a new connector"
+    url: https://github.com/pranavvp16/harnex/issues/new?template=new_connector.yml
+    about: "Use the connector template to propose a new integration or claim an existing one."
+  - name: "README / local dev setup"
+    url: https://github.com/pranavvp16/harnex/blob/main/README.md
+    about: "Getting-started guide, Docker stack, and service map."
+  - name: "Contributor guide"
+    url: https://github.com/pranavvp16/harnex/blob/main/CONTRIBUTING.md
+    about: "How to add a connector, test requirements, and PR process."

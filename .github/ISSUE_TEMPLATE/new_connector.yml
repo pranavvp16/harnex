@@ -1,0 +1,97 @@
+name: "New Connector Request / Proposal"
+description: "Propose or request a new built-in connector for Harnex."
+title: "[Connector] <Service Name>"
+labels: ["connector", "good first issue"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a connector! Read [CONTRIBUTING.md](../../CONTRIBUTING.md) before
+        submitting — the connector contract is small but exact. An ideal proposal includes a
+        public OpenAPI spec URL so the implementer doesn't have to hunt for one.
+
+  - type: input
+    id: service_name
+    attributes:
+      label: "Service name"
+      description: "Human-readable name, e.g. Stripe, Notion, Datadog"
+      placeholder: "Stripe"
+    validations:
+      required: true
+
+  - type: input
+    id: connector_key
+    attributes:
+      label: "Connector key (slug)"
+      description: "Lowercase ASCII, hyphen-separated for multi-word. Becomes the registry key."
+      placeholder: "stripe"
+    validations:
+      required: true
+
+  - type: input
+    id: base_url
+    attributes:
+      label: "Default base URL"
+      description: "Leave blank if tenant-specific (e.g. Jira: <org>.atlassian.net, Zendesk: <sub>.zendesk.com)."
+      placeholder: "https://api.stripe.com"
+
+  - type: input
+    id: openapi_url
+    attributes:
+      label: "Public OpenAPI spec URL"
+      description: "Link to an official or well-maintained community spec (JSON or YAML)."
+      placeholder: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json"
+
+  - type: checkboxes
+    id: auth_flows
+    attributes:
+      label: "Supported auth flows"
+      description: "Select all flows the API officially supports."
+      options:
+        - label: "bearer — Authorization: Bearer <token>"
+        - label: "api_key_header — custom header, e.g. X-Api-Key"
+        - label: "api_key_query — API key in query param"
+        - label: "basic — HTTP Basic Auth (username + password / token)"
+        - label: "oauth_authcode — OAuth 2.0 Authorization Code"
+        - label: "oauth_clientcred — OAuth 2.0 Client Credentials"
+        - label: "none — no auth required"
+
+  - type: input
+    id: test_endpoint
+    attributes:
+      label: "Suggested test endpoint"
+      description: "A cheap authenticated call that verifies credentials without side effects."
+      placeholder: "GET /v1/account"
+
+  - type: textarea
+    id: before_execute_notes
+    attributes:
+      label: "Request transformation needed? (before_execute)"
+      description: |
+        Does every outbound request need to be modified? Examples: Linear rewrites all
+        calls to POST /graphql; Kubernetes adds Accept: application/json. Leave blank
+        if no transformation is needed.
+
+  - type: textarea
+    id: infer_base_url_notes
+    attributes:
+      label: "Custom base URL resolution needed? (infer_base_url)"
+      description: |
+        Does the base URL vary per tenant/org (like Jira or Zendesk)? If yes, describe
+        how to derive it from the connection config. Leave blank if the fixed
+        default_base_url is sufficient.
+
+  - type: textarea
+    id: links
+    attributes:
+      label: "Relevant links"
+      description: "API docs, community OpenAPI specs, auth flow documentation."
+
+  - type: checkboxes
+    id: implementation
+    attributes:
+      label: "Are you offering to implement this?"
+      options:
+        - label: "Yes — I will open a PR for this connector."
+        - label: "No — I am requesting that someone else implement it."
