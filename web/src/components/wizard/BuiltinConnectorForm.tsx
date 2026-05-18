@@ -18,7 +18,8 @@ export type BuiltinConnectorKey =
   | "jira"
   | "kubernetes"
   | "linear"
-  | "slack";
+  | "slack"
+  | "stripe";
 
 interface Props {
   connectorKey: BuiltinConnectorKey;
@@ -769,6 +770,71 @@ function SlackForm({ onSubmit, submitting, embedded, onNameChange, onStateChange
   );
 }
 
+// ── Stripe ────────────────────────────────────────────────────────────────────
+
+const stripeSchema = z.object({
+  name: z.string().min(1, "Required"),
+  token: z.string().min(1, "Required"),
+});
+type StripeValues = z.infer<typeof stripeSchema>;
+
+function buildStripeState(values: StripeValues): WizardFormState {
+  return {
+    payload: {
+      name: values.name,
+      mode: "builtin",
+      connector_key: "stripe",
+      auth_flow: "bearer" as AuthFlow,
+      auth_config: {},
+      credentials: values.token ? { token: values.token } : {},
+    },
+    valid: Boolean(values.name?.trim()) && Boolean(values.token?.trim()),
+    summary: {
+      authMethodLabel: "Secret key",
+      secretSummary: maskSecret(values.token) ?? "(not set)",
+      isOAuth: false,
+      oauthProvider: null,
+    },
+  };
+}
+
+function StripeForm({ onSubmit, submitting, embedded, onNameChange, onStateChange }: SubFormProps) {
+  const form = useForm<StripeValues>({
+    resolver: zodResolver(stripeSchema),
+    defaultValues: { name: "stripe", token: "" },
+  });
+  const nameValue = form.watch("name");
+  useEffect(() => { onNameChange?.(nameValue); }, [nameValue, onNameChange]);
+  useEmitState(form, onStateChange, buildStripeState);
+
+  function handle(values: StripeValues) {
+    onSubmit?.(buildStripeState(values).payload);
+  }
+
+  return (
+    <FormSection title="Connect Stripe">
+      <Field label="Connection name" htmlFor="name">
+        <Input id="name" {...form.register("name")} />
+      </Field>
+      <Field
+        label="Secret key"
+        htmlFor="token"
+        hint="Starts with sk_live_... or sk_test_... — stored in Infisical, never in the browser."
+        error={form.formState.errors.token?.message}
+      >
+        <Input id="token" type="password" autoComplete="off" {...form.register("token")} />
+      </Field>
+      {!embedded && (
+        <div className="flex justify-end">
+          <Button onClick={form.handleSubmit(handle)} disabled={submitting}>
+            {submitting ? "Creating…" : "Create connection"}
+          </Button>
+        </div>
+      )}
+    </FormSection>
+  );
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 export function BuiltinConnectorForm({
@@ -801,6 +867,8 @@ export function BuiltinConnectorForm({
       return <LinearForm {...shared} />;
     case "slack":
       return <SlackForm {...shared} />;
+    case "stripe":
+      return <StripeForm {...shared} />;
     default:
       return null;
   }
