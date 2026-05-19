@@ -256,7 +256,7 @@ async def callback(
 
     def _bounce_error(reason: str) -> RedirectResponse:
         resp = RedirectResponse(
-            url=f"{web_base}/login?auth_error={quote(reason)}", status_code=303
+            url=f"{web_base}/onboarding?auth_error={quote(reason)}", status_code=303
         )
         resp.delete_cookie(_STATE_COOKIE_NAME, path="/v1/session/callback")
         return resp
