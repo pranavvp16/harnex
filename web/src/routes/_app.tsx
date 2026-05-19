@@ -32,18 +32,12 @@ import { useApi } from "@/lib/useApi";
 import { useTheme } from "@/lib/theme";
 
 export const Route = createFileRoute("/_app")({
-  beforeLoad: ({ context, location }) => {
+  beforeLoad: ({ context }) => {
     if (context.auth.status === "loading") return;
-    if (context.auth.status !== "authenticated") {
-      throw redirect({
-        to: "/login",
-        search: { returnTo: location.pathname },
-      });
-    }
-    // Authenticated but no tenant yet — finish onboarding before showing
-    // the workspace shell. Skips the redirect when /onboarding itself bounces
-    // through here (it lives outside _app, so this only fires for /dashboard etc).
-    if (!context.auth.devTenantId) {
+    // Unauth'd and partially-onboarded users both route through /onboarding,
+    // whose step 0 (SignInStep) handles new + returning logins via the same
+    // Keycloak broker. Lives outside _app so it never re-triggers this guard.
+    if (context.auth.status !== "authenticated" || !context.auth.devTenantId) {
       throw redirect({ to: "/onboarding" });
     }
   },

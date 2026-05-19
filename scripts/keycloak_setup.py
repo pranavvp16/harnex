@@ -34,6 +34,8 @@ ADMIN_USER = os.environ.get("KEYCLOAK_ADMIN", "admin")
 ADMIN_PASSWORD = os.environ.get("KEYCLOAK_ADMIN_PASSWORD")
 ADMIN_CLIENT_ID = os.environ.get("KEYCLOAK_ADMIN_CLIENT_ID", "harnex-admin-cli")
 ADMIN_CLIENT_SECRET = os.environ.get("KEYCLOAK_ADMIN_CLIENT_SECRET")
+WEB_CLIENT_ID = os.environ.get("KEYCLOAK_WEB_CLIENT_ID", "harnex-web")
+WEB_CLIENT_SECRET = os.environ.get("KEYCLOAK_WEB_CLIENT_SECRET")
 
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
@@ -103,6 +105,36 @@ def _set_admin_cli_secret(client: httpx.Client, token: str) -> None:
     if resp.status_code not in (204, 200):
         raise KeycloakError(f"set client secret failed ({resp.status_code}): {resp.text}")
     print(f"  - OK:   {ADMIN_CLIENT_ID} secret set")
+
+
+def _set_web_client_secret(client: httpx.Client, token: str) -> None:
+    """Ensure harnex-web is a confidential client and align its secret with .env.
+
+    The BFF cookie session flow posts to the token endpoint with this secret;
+    without it /v1/session/callback fails with `KEYCLOAK_WEB_CLIENT_SECRET is
+    not configured` after Keycloak has already authenticated the user.
+    """
+    if not WEB_CLIENT_SECRET:
+        print(f"  - SKIP: {WEB_CLIENT_ID} secret (KEYCLOAK_WEB_CLIENT_SECRET not set)")
+        return
+    uuid = _get_client_uuid(client, token, WEB_CLIENT_ID)
+    detail = client.get(
+        f"{KEYCLOAK_BASE_URL}/admin/realms/{REALM}/clients/{uuid}",
+        headers=_api(client, token),
+    )
+    detail.raise_for_status()
+    body: dict[str, Any] = detail.json()
+    body["publicClient"] = False
+    body["clientAuthenticatorType"] = "client-secret"
+    body["secret"] = WEB_CLIENT_SECRET
+    resp = client.put(
+        f"{KEYCLOAK_BASE_URL}/admin/realms/{REALM}/clients/{uuid}",
+        json=body,
+        headers=_api(client, token),
+    )
+    if resp.status_code not in (204, 200):
+        raise KeycloakError(f"set web client secret failed ({resp.status_code}): {resp.text}")
+    print(f"  - OK:   {WEB_CLIENT_ID} confidential + secret set")
 
 
 def _grant_manage_users(client: httpx.Client, token: str) -> None:
@@ -204,7 +236,14 @@ def _setup_google(client: httpx.Client, token: str) -> None:
         display_name="Google",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
-        extra_config={"defaultScope": "openid profile email"},
+        # `prompt=select_account` forces Google's account chooser on every
+        # broker hand-off so a logged-out user can switch between multiple
+        # Google accounts. Without it, Google silently re-uses whichever
+        # account has an active browser session.
+        extra_config={
+            "defaultScope": "openid profile email",
+            "prompt": "select_account",
+        },
     )
 
 
@@ -235,6 +274,7 @@ def main() -> int:
 
         try:
             _set_admin_cli_secret(client, token)
+            _set_web_client_secret(client, token)
             _grant_manage_users(client, token)
             _setup_google(client, token)
             _setup_github(client, token)

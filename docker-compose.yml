@@ -147,6 +147,8 @@ services:
       KEYCLOAK_JWKS_CACHE_SECONDS: ${KEYCLOAK_JWKS_CACHE_SECONDS:-300}
       KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-harnex-admin-cli}
       KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
+      # harnex-web is a confidential client; BFF token exchange uses this secret.
+      KEYCLOAK_WEB_CLIENT_SECRET: ${KEYCLOAK_WEB_CLIENT_SECRET:?set KEYCLOAK_WEB_CLIENT_SECRET in .env}
       INFISICAL_BASE_URL: ${INFISICAL_INTERNAL_BASE_URL:-http://infisical:8080}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-dev}
@@ -159,6 +161,13 @@ services:
       HARNEX_OPENAI_EMBEDDING_MODEL: ${HARNEX_OPENAI_EMBEDDING_MODEL:-text-embedding-3-large}
       HARNEX_OPENAI_EMBEDDING_DIM: ${HARNEX_OPENAI_EMBEDDING_DIM:-1536}
       HARNEX_USE_FAKE_EMBEDDINGS: ${HARNEX_USE_FAKE_EMBEDDINGS:-0}
+      # Session cookie — Secure must be false on http://localhost or browsers
+      # silently drop the cookie and the SPA bounces back to sign-in.
+      HARNEX_SESSION_COOKIE_SECURE: ${HARNEX_SESSION_COOKIE_SECURE:-true}
+      HARNEX_SESSION_COOKIE_SAMESITE: ${HARNEX_SESSION_COOKIE_SAMESITE:-lax}
+      # Fernet key(s) that encrypt the OAuth state + session row encryption.
+      # API refuses to issue logins without this set.
+      HARNEX_SESSION_ENCRYPTION_KEYS: ${HARNEX_SESSION_ENCRYPTION_KEYS:?set HARNEX_SESSION_ENCRYPTION_KEYS in .env}
       # Blaxel sandbox (code-mode execute path). Empty BLAXEL_API_KEY disables
       # code-mode at runtime — /v1/execute with mode="code" will surface a clear
       # error instead of crashing.

@@ -18,18 +18,24 @@
       "clientId": "harnex-web",
       "name": "Harnex Console",
       "enabled": true,
-      "publicClient": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "",
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "implicitFlowEnabled": false,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:5173/*", "http://localhost:5173"],
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://localhost:5173",
+        "http://localhost:8000/v1/session/callback"
+      ],
       "webOrigins": ["http://localhost:5173", "+"],
       "rootUrl": "http://localhost:5173",
       "baseUrl": "http://localhost:5173",
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*"
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://localhost:8000/*"
       },
       "protocolMappers": [
         {
