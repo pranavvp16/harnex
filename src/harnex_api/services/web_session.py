@@ -196,13 +196,19 @@ class WebSessionService:
 
     # ---------- Keycloak HTTP ----------
 
+    def _server_base(self) -> str:
+        # Server-to-server calls from the API to Keycloak (token exchange,
+        # logout). Prefer the internal `base_url` over the public `issuer`
+        # — in docker-local dev the issuer is `http://localhost:8080`, which
+        # inside the api container points back at the api itself, not Keycloak.
+        # Falls back to issuer only when base isn't configured.
+        return (self._settings.keycloak_base_url or self._settings.keycloak_issuer_base_url).rstrip("/")
+
     def _token_url(self) -> str:
-        base = (self._settings.keycloak_issuer_base_url or self._settings.keycloak_base_url).rstrip("/")
-        return f"{base}/realms/{self._settings.keycloak_realm}/protocol/openid-connect/token"
+        return f"{self._server_base()}/realms/{self._settings.keycloak_realm}/protocol/openid-connect/token"
 
     def _logout_url(self) -> str:
-        base = (self._settings.keycloak_issuer_base_url or self._settings.keycloak_base_url).rstrip("/")
-        return f"{base}/realms/{self._settings.keycloak_realm}/protocol/openid-connect/logout"
+        return f"{self._server_base()}/realms/{self._settings.keycloak_realm}/protocol/openid-connect/logout"
 
     async def _post_token(self, body: dict[str, str]) -> TokenSet:
         secret = self._settings.keycloak_web_client_secret.get_secret_value()
