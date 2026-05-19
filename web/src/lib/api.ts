@@ -155,6 +155,16 @@ export interface UsageCurrent {
   monthly_execution_quota: number;
 }
 
+export interface DailyExecutionPoint {
+  date: string;
+  count: number;
+}
+
+export interface DailyExecutions {
+  days: number;
+  points: DailyExecutionPoint[];
+}
+
 export type TenantPlan = "free" | "starter" | "pro" | "enterprise";
 export type TenantRole = "owner" | "admin" | "developer" | "viewer";
 
@@ -274,6 +284,7 @@ export interface HarnexClient {
   revokeApiKey(id: string): Promise<void>;
   listExecutions(params?: { limit?: number; offset?: number }): Promise<Page<ExecutionLogItem>>;
   getCurrentUsage(): Promise<UsageCurrent>;
+  getDailyExecutions(days?: number): Promise<DailyExecutions>;
   search(input: {
     query: string;
     top_k?: number;
@@ -351,6 +362,8 @@ export function buildClient(auth: ClientAuth = {}): HarnexClient {
     listExecutions: ({ limit = 50, offset = 0 } = {}) =>
       call<Page<ExecutionLogItem>>(`/v1/executions?limit=${limit}&offset=${offset}`),
     getCurrentUsage: () => call<UsageCurrent>("/v1/usage/current"),
+    getDailyExecutions: (days = 30) =>
+      call<DailyExecutions>(`/v1/usage/daily?days=${days}`),
     search: (input) =>
       call<SearchResponse>("/v1/search", {
         method: "POST",
