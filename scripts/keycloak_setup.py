@@ -236,7 +236,14 @@ def _setup_google(client: httpx.Client, token: str) -> None:
         display_name="Google",
         client_id=GOOGLE_CLIENT_ID,
         client_secret=GOOGLE_CLIENT_SECRET,
-        extra_config={"defaultScope": "openid profile email"},
+        # `prompt=select_account` forces Google's account chooser on every
+        # broker hand-off so a logged-out user can switch between multiple
+        # Google accounts. Without it, Google silently re-uses whichever
+        # account has an active browser session.
+        extra_config={
+            "defaultScope": "openid profile email",
+            "prompt": "select_account",
+        },
     )
 
 
