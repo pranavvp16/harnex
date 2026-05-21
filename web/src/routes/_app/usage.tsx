@@ -84,6 +84,8 @@ function UsagePage() {
         </div>
         {daily.isLoading ? (
           <div style={{ padding: 16, fontSize: 12, color: "var(--muted)" }}>Loading…</div>
+        ) : daily.isError ? (
+          <div style={{ padding: 16, fontSize: 12, color: "var(--muted)" }}>Failed to load chart.</div>
         ) : !hasAnyExecutions ? (
           <div
             style={{

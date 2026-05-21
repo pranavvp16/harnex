@@ -51,7 +51,7 @@ async def get_daily_executions(
     start_date = today_utc - timedelta(days=days - 1)
     start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=UTC)
 
-    day_col = func.date_trunc("day", Execution.created_at).label("day")
+    day_col = func.date_trunc("day", func.timezone("UTC", Execution.created_at)).label("day")
     rows = await db.execute(
         select(day_col, func.count().label("count"))
         .where(Execution.tenant_id == ctx.tenant_id, Execution.created_at >= start_dt)
