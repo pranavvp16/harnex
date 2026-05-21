@@ -11,4 +11,14 @@ class UsageCurrent(ApiModel):
     monthly_execution_quota: int
 
 
-__all__ = ["UsageCurrent"]
+class DailyExecutionPoint(ApiModel):
+    date: str  # YYYY-MM-DD (UTC)
+    count: int
+
+
+class DailyExecutions(ApiModel):
+    days: int
+    points: list[DailyExecutionPoint]
+
+
+__all__ = ["DailyExecutionPoint", "DailyExecutions", "UsageCurrent"]

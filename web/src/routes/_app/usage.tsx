@@ -16,6 +16,12 @@ function UsagePage() {
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
+  const daily = useQuery({
+    queryKey: ["usage", "daily", 30],
+    queryFn: () => api.getDailyExecutions(30),
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
 
   if (usage.isLoading) {
     return <div style={{ fontSize: 13, color: "var(--muted)" }}>Loading…</div>;
@@ -25,6 +31,9 @@ function UsagePage() {
   }
 
   const u = usage.data;
+  const dailyPoints = daily.data?.points ?? [];
+  const maxCount = dailyPoints.reduce((m, p) => Math.max(m, p.count), 0);
+  const hasAnyExecutions = maxCount > 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -69,41 +78,63 @@ function UsagePage() {
 
       <div className="card">
         <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-          <h3 style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>Daily executions — last 30 days</h3>
+          <h3 style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>
+            Daily executions — last 30 days
+          </h3>
         </div>
-        <div style={{ padding: 16, height: 200, display: "flex", alignItems: "flex-end", gap: 3 }}>
-          {Array.from({ length: 30 }).map((_, i) => {
-            const h = 25 + Math.sin(i * 0.7) * 30 + Math.random() * 50 + (i > 22 ? 30 : 0);
-            return (
-              <div
-                key={i}
-                style={{
-                  flex: 1,
-                  height: `${Math.min(95, h)}%`,
-                  background: i > 26 ? "var(--accent)" : "var(--ink-2)",
-                  borderRadius: 2,
-                  opacity: 0.85,
-                }}
-              />
-            );
-          })}
-        </div>
-        <div
-          style={{
-            padding: "0 16px 12px",
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: 10.5,
-            color: "var(--muted)",
-          }}
-          className="mono"
-        >
-          <span>Day 1</span>
-          <span>Day 8</span>
-          <span>Day 15</span>
-          <span>Day 22</span>
-          <span>Day 30</span>
-        </div>
+        {daily.isLoading ? (
+          <div style={{ padding: 16, fontSize: 12, color: "var(--muted)" }}>Loading…</div>
+        ) : daily.isError ? (
+          <div style={{ padding: 16, fontSize: 12, color: "var(--muted)" }}>Failed to load chart.</div>
+        ) : !hasAnyExecutions ? (
+          <div
+            style={{
+              padding: "32px 16px",
+              fontSize: 12,
+              color: "var(--muted)",
+              textAlign: "center",
+            }}
+          >
+            No executions in the last 30 days.
+          </div>
+        ) : (
+          <>
+            <div
+              style={{ padding: 16, height: 200, display: "flex", alignItems: "flex-end", gap: 3 }}
+            >
+              {dailyPoints.map((p) => {
+                const pct = maxCount > 0 ? (p.count / maxCount) * 95 : 0;
+                const isToday = p.date === dailyPoints[dailyPoints.length - 1]?.date;
+                return (
+                  <div
+                    key={p.date}
+                    title={`${p.date}: ${p.count}`}
+                    style={{
+                      flex: 1,
+                      height: `${Math.max(p.count > 0 ? 2 : 0, pct)}%`,
+                      background: isToday ? "var(--accent)" : "var(--ink-2)",
+                      borderRadius: 2,
+                      opacity: 0.85,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div
+              style={{
+                padding: "0 16px 12px",
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: 10.5,
+                color: "var(--muted)",
+              }}
+              className="mono"
+            >
+              <span>{dailyPoints[0]?.date ?? ""}</span>
+              <span>{dailyPoints[dailyPoints.length - 1]?.date ?? ""}</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
