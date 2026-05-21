@@ -774,7 +774,12 @@ function SlackForm({ onSubmit, submitting, embedded, onNameChange, onStateChange
 
 const stripeSchema = z.object({
   name: z.string().min(1, "Required"),
-  token: z.string().min(1, "Required"),
+  token: z
+    .string()
+    .min(1, "Required")
+    .refine((v) => v.startsWith("sk_live_") || v.startsWith("sk_test_"), {
+      message: "Must be a Stripe secret key (starts with sk_live_ or sk_test_)",
+    }),
 });
 type StripeValues = z.infer<typeof stripeSchema>;
 
@@ -788,7 +793,12 @@ function buildStripeState(values: StripeValues): WizardFormState {
       auth_config: {},
       credentials: values.token ? { token: values.token } : {},
     },
-    valid: Boolean(values.name?.trim()) && Boolean(values.token?.trim()),
+    valid:
+      Boolean(values.name?.trim()) &&
+      Boolean(
+        values.token &&
+          (values.token.startsWith("sk_live_") || values.token.startsWith("sk_test_")),
+      ),
     summary: {
       authMethodLabel: "Secret key",
       secretSummary: maskSecret(values.token) ?? "(not set)",
